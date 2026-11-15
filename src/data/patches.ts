@@ -1,0 +1,103 @@
+export interface PatchDef {
+  id: string;
+  name: string;
+  subtitle: string;
+  description: string;
+  color: string;
+  icon: string;
+  maxLevel: number;
+  category: 'weapon' | 'trap' | 'passive';
+}
+
+export const PATCH_CATALOG: PatchDef[] = [
+  {
+    id: 'spring_whisk',
+    name: 'バネ腕ホイッパー',
+    subtitle: 'SPRING WHISK',
+    description: 'モグリオの泡立て器が周囲を高速回転し、近づく敵を切り刻む',
+    color: '#9b5de5',
+    icon: '🥣',
+    maxLevel: 5,
+    category: 'weapon',
+  },
+  {
+    id: 'banana_slip',
+    name: 'バナナの皮トラップ',
+    subtitle: 'BANANA SLIP',
+    description: '足元にバナナの皮を設置！踏んだ敵がスベって転び周囲にダメージ',
+    color: '#f2c94c',
+    icon: '🍌',
+    maxLevel: 5,
+    category: 'trap',
+  },
+  {
+    id: 'magic_rabbit',
+    name: 'マジックラビット',
+    subtitle: 'MAGIC RABBIT',
+    description: 'シルクハットから白ウサギ弾を放ち、一番近い敵を自動追尾攻撃',
+    color: '#3ec6e0',
+    icon: '🐰',
+    maxLevel: 5,
+    category: 'weapon',
+  },
+  {
+    id: 'eyeball_bounce',
+    name: '目玉ジャグリング',
+    subtitle: 'EYEBALL BOUNCE',
+    description: 'ピピンの目玉を発射！敵や墓石に当たると跳ね返って連続ヒット',
+    color: '#7ed957',
+    icon: '👁️',
+    maxLevel: 5,
+    category: 'weapon',
+  },
+  {
+    id: 'poison_flask',
+    name: 'グリーンプール',
+    subtitle: 'ACID FLASK',
+    description: 'プロフェッサーの怪しい緑フラスコを投擲し継続ダメージ地帯を生成',
+    color: '#46c978',
+    icon: '🧪',
+    maxLevel: 5,
+    category: 'trap',
+  },
+  {
+    id: 'chicken_honk',
+    name: 'びっくりチキン波',
+    subtitle: 'CHICKEN HONK',
+    description: '一定間隔で黄色いチキンが絶叫！全方位の敵をノックバック',
+    color: '#ff9f1c',
+    icon: '🐔',
+    maxLevel: 5,
+    category: 'weapon',
+  },
+  {
+    id: 'cotton_padding',
+    name: '増量ワタ詰め',
+    subtitle: 'EXTRA STUFFING',
+    description: '最大HP +25 ＆ 即時HP35回復。体がふかふかになり耐久アップ',
+    color: '#ff6b8b',
+    icon: '☁️',
+    maxLevel: 5,
+    category: 'passive',
+  },
+  {
+    id: 'stitch_boots',
+    name: '特製ステッチ靴',
+    subtitle: 'STITCH BOOTS',
+    description: '移動速度 +12% ＆ ダッシュ回避のクールタイム短縮',
+    color: '#5c9eff',
+    icon: '🥾',
+    maxLevel: 5,
+    category: 'passive',
+  },
+  {
+    id: 'gold_button',
+    name: 'キラキラボタン磁石',
+    subtitle: 'BUTTON MAGNET',
+    description: 'XP・ボタン回収範囲 +35% ＆ 攻撃ダメージ +12%',
+    color: '#ffd166',
+    icon: '🟡',
+    maxLevel: 5,
+    category: 'passive',
+  },
+];
