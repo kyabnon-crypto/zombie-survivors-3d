@@ -1,9 +1,24 @@
+export type AttackStyle =
+  | 'kick'
+  | 'cone_smash'
+  | 'arcane_book'
+  | 'whisk_spin'
+  | 'magic_wand'
+  | 'eyeball_shot'
+  | 'bat_slam'
+  | 'drum_flurry'
+  | 'flask_throw'
+  | 'bandage_whip'
+  | 'cupcake_pop'
+  | 'teddy_rush';
+
 export interface ZombieCharDef {
   id: string;
   name: string;
   role: string;
   tagline: string;
   portrait: string;
+  glbPath?: string;
   primaryColor: string;
   accentColor: string;
   hp: number;
@@ -11,10 +26,11 @@ export interface ZombieCharDef {
   attackPower: number;
   attackCooldown: number;
   attackRange: number;
+  attackStyle: AttackStyle;
   startingPatch: string;
   specialName: string;
   specialDesc: string;
-  playable: boolean;
+  unlockCost: number; // 0 = unlocked from start
 }
 
 export const ZOMBIE_CHARACTERS: ZombieCharDef[] = [
@@ -30,11 +46,12 @@ export const ZOMBIE_CHARACTERS: ZombieCharDef[] = [
     speed: 9.2,
     attackPower: 26,
     attackCooldown: 0.42,
-    attackRange: 3.4,
+    attackRange: 3.5,
+    attackStyle: 'kick',
     startingPatch: 'banana_slip',
     specialName: 'ブーツ・スピンラッシュ',
     specialDesc: '周囲を高速回転キックでなぎ払い、敵を吹き飛ばす！',
-    playable: true,
+    unlockCost: 0,
   },
   {
     id: 'blue_partin',
@@ -44,15 +61,16 @@ export const ZOMBIE_CHARACTERS: ZombieCharDef[] = [
     portrait: './assets/chars/blue_partin.png',
     primaryColor: '#2ea3dc',
     accentColor: '#f28c28',
-    hp: 145,
-    speed: 7.8,
+    hp: 150,
+    speed: 7.9,
     attackPower: 34,
-    attackCooldown: 0.58,
-    attackRange: 4.0,
+    attackCooldown: 0.56,
+    attackRange: 4.2,
+    attackStyle: 'cone_smash',
     startingPatch: 'cotton_padding',
     specialName: 'コーン・メテオスマッシュ',
-    specialDesc: '地面を叩き割る衝撃波で広範囲の敵をスタン＆撃破！',
-    playable: true,
+    specialDesc: '地面を叩き割る衝撃波で広範囲の敵を粉砕！',
+    unlockCost: 0,
   },
   {
     id: 'green_glassy',
@@ -64,45 +82,191 @@ export const ZOMBIE_CHARACTERS: ZombieCharDef[] = [
     accentColor: '#f2c94c',
     hp: 95,
     speed: 8.4,
-    attackPower: 22,
-    attackCooldown: 0.48,
-    attackRange: 8.5,
+    attackPower: 23,
+    attackCooldown: 0.46,
+    attackRange: 9.0,
+    attackStyle: 'arcane_book',
     startingPatch: 'chicken_honk',
     specialName: 'チキン・ソニックウェーブ',
     specialDesc: '図鑑魔弾連射＋ラバーチキンの音波で敵を吹き飛ばす！',
-    playable: true,
+    unlockCost: 0,
   },
   {
     id: 'purple_chef',
     name: 'パープルシェフ・モグリオ',
-    role: 'グラップル / トルネード',
+    role: 'バネ腕 / トルネード',
     tagline: 'バネ腕の泡立て器トルネードと焼きたてパンで無双！',
     portrait: './assets/chars/purple_chef.png',
     primaryColor: '#7a48a6',
     accentColor: '#4e8f54',
     hp: 115,
-    speed: 8.2,
-    attackPower: 25,
-    attackCooldown: 0.5,
+    speed: 8.3,
+    attackPower: 26,
+    attackCooldown: 0.48,
     attackRange: 4.4,
+    attackStyle: 'whisk_spin',
     startingPatch: 'spring_whisk',
     specialName: 'バネ腕・ミキサーストーム',
-    specialDesc: '巨大なバネ腕を振り回し周囲を巻き込み回復パンを生成！',
-    playable: true,
+    specialDesc: '巨大なバネ腕を振り回し周囲を巻き込む！',
+    unlockCost: 0,
+  },
+  {
+    id: 'orange_cheney',
+    name: 'オレンジ・チェイニー',
+    role: 'ヘビー / バット強打',
+    tagline: '折れた木製バットで敵を場外ホームランにする怪力ゾンビ！',
+    portrait: './assets/chars/orange_cheney.png',
+    primaryColor: '#e8782c',
+    accentColor: '#468a4d',
+    hp: 135,
+    speed: 8.0,
+    attackPower: 38,
+    attackCooldown: 0.62,
+    attackRange: 4.3,
+    attackStyle: 'bat_slam',
+    startingPatch: 'gold_button',
+    specialName: 'フルスイング・ホームラン',
+    specialDesc: '特大のノックバック付きフルスイングで敵を弾き飛ばす！',
+    unlockCost: 15,
+  },
+  {
+    id: 'yellow_stripes',
+    name: 'イエロー・ストライプス',
+    role: 'ラッシュ / ドラム連打',
+    tagline: '囚人服に錆バケツ！高速ドラムスティック連打の暴れん坊',
+    portrait: './assets/chars/yellow_stripes.png',
+    primaryColor: '#ecc538',
+    accentColor: '#222229',
+    hp: 105,
+    speed: 9.4,
+    attackPower: 18,
+    attackCooldown: 0.28,
+    attackRange: 3.6,
+    attackStyle: 'drum_flurry',
+    startingPatch: 'stitch_boots',
+    specialName: 'バケツ・ビートラッシュ',
+    specialDesc: '超高速の連続ビート打撃でコンボを稼ぎまくる！',
+    unlockCost: 20,
+  },
+  {
+    id: 'polka_pippin',
+    name: 'ポルカ・ピピン',
+    role: '曲芸 / バウンド弾',
+    tagline: '両手の目玉をジャグリング！敵から敵へ跳ねるトリックショット',
+    portrait: './assets/chars/polka_pippin.png',
+    primaryColor: '#88c440',
+    accentColor: '#d94848',
+    hp: 92,
+    speed: 8.8,
+    attackPower: 22,
+    attackCooldown: 0.44,
+    attackRange: 9.5,
+    attackStyle: 'eyeball_shot',
+    startingPatch: 'eyeball_bounce',
+    specialName: 'アイボール・カーニバル',
+    specialDesc: '跳弾する目玉弾を放ち、群れの中で連続ヒットさせる！',
+    unlockCost: 25,
+  },
+  {
+    id: 'mummy_wrapple',
+    name: 'ミイラ・ラップル',
+    role: 'フローター / 包帯＆ランタン',
+    tagline: 'ぷかぷか浮遊しながら長い包帯ムチで広範囲を薙ぎ払う！',
+    portrait: './assets/chars/mummy_wrapple.png',
+    primaryColor: '#c988a5',
+    accentColor: '#e6dcc5',
+    hp: 110,
+    speed: 9.0,
+    attackPower: 25,
+    attackCooldown: 0.46,
+    attackRange: 5.2,
+    attackStyle: 'bandage_whip',
+    startingPatch: 'bandage_whip',
+    specialName: 'ランタン・バンデージ',
+    specialDesc: '包帯の長いリーチで中距離の敵を一網打尽！',
+    unlockCost: 30,
+  },
+  {
+    id: 'green_prof',
+    name: 'グリーン・プロフェッサー',
+    role: 'テクニカル / 酸フラスコ',
+    tagline: '怪しい緑のフラスコを投げつけ、毒の沼で敵を溶かす科学者',
+    portrait: './assets/chars/green_prof.png',
+    primaryColor: '#869e7c',
+    accentColor: '#3de068',
+    hp: 100,
+    speed: 8.2,
+    attackPower: 24,
+    attackCooldown: 0.55,
+    attackRange: 8.5,
+    attackStyle: 'flask_throw',
+    startingPatch: 'poison_flask',
+    specialName: 'アシッド・ラボラトリー',
+    specialDesc: '着弾地点に酸のプールを生成するフラスコを投擲！',
+    unlockCost: 35,
+  },
+  {
+    id: 'scarf_miina',
+    name: 'スカーフのミイナ',
+    role: 'サモナー / クマ人形',
+    tagline: 'ボタン目のクマちゃんを突撃させて一緒に戦う心強い少女ゾンビ',
+    portrait: './assets/chars/scarf_miina.png',
+    primaryColor: '#69a7b8',
+    accentColor: '#7a459c',
+    hp: 108,
+    speed: 8.6,
+    attackPower: 24,
+    attackCooldown: 0.45,
+    attackRange: 6.5,
+    attackStyle: 'teddy_rush',
+    startingPatch: 'teddy_turret',
+    specialName: 'クマちゃん大突撃',
+    specialDesc: 'クマちゃん人形の波動で周囲を攻撃し続ける！',
+    unlockCost: 40,
+  },
+  {
+    id: 'brains_blossom',
+    name: 'ブレインズ・ブロッサム',
+    role: 'ヒーラー / スイーツ爆弾',
+    tagline: '特製脳みそカップケーキで敵を吹き飛ばしつつ体力も回復！',
+    portrait: './assets/chars/brains_blossom.png',
+    primaryColor: '#e87898',
+    accentColor: '#f7ead9',
+    hp: 130,
+    speed: 8.1,
+    attackPower: 26,
+    attackCooldown: 0.52,
+    attackRange: 4.6,
+    attackStyle: 'cupcake_pop',
+    startingPatch: 'brain_cupcake',
+    specialName: 'スイート・ブレインボム',
+    specialDesc: '甘い香りの衝撃波と回復スイーツで粘り強く戦う！',
+    unlockCost: 45,
+  },
+  {
+    id: 'captain_patch',
+    name: 'キャプテン・パッチ',
+    role: 'メイジ / 魔術師',
+    tagline: 'シルクハットの白ウサギとステッキ魔弾を操る華麗なボス級魔術師！',
+    portrait: './assets/chars/captain_patch.png',
+    primaryColor: '#37a4d1',
+    accentColor: '#703b96',
+    hp: 120,
+    speed: 8.9,
+    attackPower: 30,
+    attackCooldown: 0.42,
+    attackRange: 10.0,
+    attackStyle: 'magic_wand',
+    startingPatch: 'magic_rabbit',
+    specialName: 'ファントム・イリュージョン',
+    specialDesc: '追尾する白ウサギ＆ステッキ魔弾で遠距離から圧倒！',
+    unlockCost: 60,
   },
 ];
 
-export const ALL_CAST_GALLERY = [
-  { id: 'red_hatter', name: 'レッド・ハッター', role: 'スピード', portrait: './assets/chars/red_hatter.png' },
-  { id: 'blue_partin', name: 'ブルーパーティン', role: 'パワー', portrait: './assets/chars/blue_partin.png' },
-  { id: 'green_glassy', name: 'グリーン博士・グラッシー', role: 'テック', portrait: './assets/chars/green_glassy.png' },
-  { id: 'purple_chef', name: 'パープルシェフ・モグリオ', role: 'バネ腕', portrait: './assets/chars/purple_chef.png' },
-  { id: 'captain_patch', name: 'キャプテン・パッチ', role: 'ボス / 魔術師', portrait: './assets/chars/captain_patch.png' },
-  { id: 'polka_pippin', name: 'ポルカ・ピピン', role: '目玉ジャグラー', portrait: './assets/chars/polka_pippin.png' },
-  { id: 'orange_cheney', name: 'オレンジ・チェイニー', role: 'バット強打', portrait: './assets/chars/orange_cheney.png' },
-  { id: 'yellow_stripes', name: 'イエロー・ストライプス', role: 'ドラム連打', portrait: './assets/chars/yellow_stripes.png' },
-  { id: 'green_prof', name: 'グリーン・プロフェッサー', role: '毒フラスコ', portrait: './assets/chars/green_prof.png' },
-  { id: 'mummy_wrapple', name: 'ミイラ・ラップル', role: '包帯＆ランタン', portrait: './assets/chars/mummy_wrapple.png' },
-  { id: 'brains_blossom', name: 'ブレインズ・ブロッサム', role: '回復スイーツ', portrait: './assets/chars/brains_blossom.png' },
-  { id: 'scarf_miina', name: 'スカーフのミイナ', role: 'クマ人形召喚', portrait: './assets/chars/scarf_miina.png' },
-];
+export const ALL_CAST_GALLERY = ZOMBIE_CHARACTERS.map((c) => ({
+  id: c.id,
+  name: c.name,
+  role: c.role,
+  portrait: c.portrait,
+}));

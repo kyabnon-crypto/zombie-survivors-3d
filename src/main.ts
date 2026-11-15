@@ -1,8 +1,17 @@
 import './style.css';
-import { ALL_CAST_GALLERY, ZOMBIE_CHARACTERS } from './data/characters';
+import { ZOMBIE_CHARACTERS } from './data/characters';
 import type { PatchDef } from './data/patches';
+import { STAGES } from './data/stages';
+import { getUpgradeCost, loadSave, SHOP_UPGRADES, writeSave } from './data/save';
 import { SoundEngine } from './audio/SoundEngine';
 import { GameEngine, type HudSnapshot } from './game/GameEngine';
+
+// Register PWA Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
 
 const app = document.getElementById('app')!;
 
@@ -13,15 +22,18 @@ app.innerHTML = `
 
     <!-- LOBBY / TITLE OVERLAY -->
     <div id="lobby-overlay">
-      <div class="lobby-top">
-        <div class="game-logo">
-          <div class="logo-title">ZOMBIE SURVIVORS 3D</div>
-          <div class="logo-sub">ワタ飛び散る墓場無双 • スマホ＆タブレット対応</div>
+      <div>
+        <div class="lobby-top">
+          <div class="game-logo">
+            <div class="logo-title">ZOMBIE SURVIVORS 3D</div>
+            <div class="logo-sub">全12体プレイアブル • 3ステージ墓場無双</div>
+          </div>
+          <div class="lobby-top-actions">
+            <button id="btn-shop" class="pill-btn gold">🛒 ショップ (<span id="lobby-btn-count">0</span> 🟡)</button>
+            <button id="btn-lobby-mute" class="pill-btn">🔊 BGM ON</button>
+          </div>
         </div>
-        <div class="lobby-top-actions">
-          <button id="btn-gallery" class="pill-btn">🧸 12キャラ図鑑</button>
-          <button id="btn-lobby-mute" class="pill-btn">🔊 BGM ON</button>
-        </div>
+        <div id="stage-strip" class="stage-strip"></div>
       </div>
 
       <div class="lobby-bottom">
@@ -55,7 +67,7 @@ app.innerHTML = `
           </div>
 
           <div class="hud-center-stats">
-            <div id="hud-wave" class="wave-label">WAVE 1 • 00:00</div>
+            <div id="hud-wave" class="wave-label">ST1 • WAVE 1 • 00:00</div>
             <div id="hud-kills" class="kill-label">撃破 0 • 🟡 0</div>
           </div>
 
@@ -71,10 +83,15 @@ app.innerHTML = `
           <div class="xp-track"><div id="hud-xp-fill" class="xp-fill" style="width:0%"></div></div>
         </div>
 
+        <div id="combo-pill" class="combo-pill hidden">
+          <div id="combo-num" class="combo-num">0 COMBO!</div>
+          <div class="combo-bar"><div id="combo-bar-fill" class="combo-bar-fill" style="width:100%"></div></div>
+        </div>
+
         <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
           <div class="boss-title">
             <span id="boss-name">暴走キャプテン・パッチ</span>
-            <span id="boss-hp-num">1450</span>
+            <span id="boss-hp-num">1350</span>
           </div>
           <div class="bar-track"><div id="boss-hp-fill" class="boss-fill" style="width:100%"></div></div>
         </div>
@@ -94,7 +111,7 @@ app.innerHTML = `
           </button>
           <button id="btn-attack" class="action-btn btn-attack">
             <span class="btn-emoji">👟</span>
-            <span>KICK</span>
+            <span>ATTACK</span>
           </button>
           <button id="btn-fever" class="action-btn btn-fever">
             <span class="btn-emoji">🔥</span>
@@ -134,44 +151,52 @@ app.innerHTML = `
       <div class="felt-panel result-box">
         <div class="banner-ribbon">
           <h2 id="result-title">STAGE CLEAR!</h2>
-          <p id="result-sub">キャプテン・パッチを正気に戻した！</p>
+          <p id="result-sub">ボスを正気に戻した！</p>
         </div>
         <div class="result-stats">
           <div class="stat-tile"><div id="res-time" class="val">00:00</div><div class="lbl">生存タイム</div></div>
           <div class="stat-tile"><div id="res-kills" class="val">0</div><div class="lbl">撃破数</div></div>
           <div class="stat-tile"><div id="res-level" class="val">LV.1</div><div class="lbl">到達レベル</div></div>
-          <div class="stat-tile"><div id="res-buttons" class="val">0</div><div class="lbl">獲得ボタン</div></div>
+          <div class="stat-tile"><div id="res-buttons" class="val">+0 🟡</div><div class="lbl">獲得ボタン(保存済)</div></div>
         </div>
         <div class="result-actions">
-          <button id="btn-retry" class="play-btn" style="padding:12px 28px; font-size:17px;">もう一度</button>
-          <button id="btn-to-lobby" class="pill-btn" style="padding:12px 20px;">キャラ選択へ</button>
+          <button id="btn-next-stage" class="play-btn hidden" style="padding:12px 24px; font-size:16px;">次のステージへ！</button>
+          <button id="btn-retry" class="play-btn" style="padding:12px 24px; font-size:16px;">もう一度</button>
+          <button id="btn-to-lobby" class="pill-btn" style="padding:12px 18px;">ロビー・ショップへ</button>
         </div>
       </div>
     </div>
 
-    <!-- 12 CHARACTERS GALLERY MODAL -->
-    <div id="gallery-modal" class="modal-backdrop hidden">
-      <div class="felt-panel gallery-box">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h2 style="margin:0; font-size:18px;">🧸 ゾンビキャラクター全12体</h2>
-          <button id="btn-close-gallery" class="pill-btn">✕ とじる</button>
+    <!-- SHOP & CHARACTER UNLOCK MODAL -->
+    <div id="shop-modal" class="modal-backdrop hidden">
+      <div class="felt-panel shop-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <h2 style="margin:0; font-size:18px;">🛒 パッチワークショップ • <span id="shop-btn-total" style="color:#ffd166;">0 🟡</span></h2>
+          <button id="btn-close-shop" class="pill-btn">✕ とじる</button>
         </div>
-        <div id="gallery-grid" class="gallery-grid"></div>
+        <div class="shop-tabs">
+          <button id="tab-upgrades" class="shop-tab active">💪 初期ステータス強化</button>
+          <button id="tab-chars" class="shop-tab">🧸 全12キャラ解放</button>
+        </div>
+        <div id="shop-grid" class="shop-grid"></div>
       </div>
     </div>
   </div>
 `;
 
 const sound = new SoundEngine();
+let save = loadSave();
 let selectedCharId = ZOMBIE_CHARACTERS[0].id;
+let selectedStageId = STAGES[0].id;
 let autoAttackMode = true;
+let shopTab: 'upgrades' | 'chars' = 'upgrades';
 
 const lobbyOverlay = document.getElementById('lobby-overlay')!;
 const hudOverlay = document.getElementById('hud-overlay')!;
 const levelupModal = document.getElementById('levelup-modal')!;
 const pauseModal = document.getElementById('pause-modal')!;
 const resultModal = document.getElementById('result-modal')!;
-const galleryModal = document.getElementById('gallery-modal')!;
+const shopModal = document.getElementById('shop-modal')!;
 const floatingLayer = document.getElementById('floating-layer')!;
 
 const engine = new GameEngine(document.getElementById('canvas-wrap')!, sound, {
@@ -188,23 +213,53 @@ function formatTime(sec: number): string {
 }
 
 function renderLobby(): void {
+  document.getElementById('lobby-btn-count')!.textContent = `${save.buttons}`;
+
+  // Stage strip
+  const stageStrip = document.getElementById('stage-strip')!;
+  stageStrip.innerHTML = '';
+  for (const st of STAGES) {
+    const unlocked = st.index <= save.unlockedStageIndex;
+    const btn = document.createElement('button');
+    btn.className = `stage-chip ${st.id === selectedStageId ? 'active' : ''} ${unlocked ? '' : 'locked'}`;
+    btn.textContent = unlocked ? st.name : `🔒 ${st.name}`;
+    btn.onclick = () => {
+      if (!unlocked) return;
+      selectedStageId = st.id;
+      engine.setLobbyStage(st.id);
+      renderLobby();
+    };
+    stageStrip.appendChild(btn);
+  }
+
+  // Character Info
   const charDef = ZOMBIE_CHARACTERS.find((c) => c.id === selectedCharId) || ZOMBIE_CHARACTERS[0];
+  const isUnlocked = save.unlockedChars.includes(charDef.id);
   const infoCard = document.getElementById('char-info-card')!;
   infoCard.innerHTML = `
     <img class="char-info-portrait" src="${charDef.portrait}" alt="${charDef.name}" />
     <div class="char-info-text">
-      <h2>${charDef.name}</h2>
+      <h2>${charDef.name} ${isUnlocked ? '' : `🔒 (${charDef.unlockCost} 🟡)`}</h2>
       <span class="char-role-tag">${charDef.role}</span>
       <p>${charDef.tagline}</p>
     </div>
   `;
 
+  // Play Button state
+  const playBtn = document.getElementById('btn-play') as HTMLButtonElement;
+  playBtn.textContent = isUnlocked ? 'PLAY!' : `🔓 ${charDef.unlockCost}🟡で解放`;
+
+  // Character Avatar Row (All 12!)
   const charRow = document.getElementById('char-row')!;
   charRow.innerHTML = '';
   for (const c of ZOMBIE_CHARACTERS) {
+    const unlocked = save.unlockedChars.includes(c.id);
     const btn = document.createElement('button');
-    btn.className = `char-avatar-btn ${c.id === selectedCharId ? 'active' : ''}`;
-    btn.innerHTML = `<img src="${c.portrait}" alt="${c.name}" />`;
+    btn.className = `char-avatar-btn ${c.id === selectedCharId ? 'active' : ''} ${unlocked ? '' : 'locked'}`;
+    btn.innerHTML = `
+      <img src="${c.portrait}" alt="${c.name}" />
+      ${unlocked ? '' : `<span class="char-lock-badge">${c.unlockCost}🟡</span>`}
+    `;
     btn.onclick = () => {
       sound.unlock();
       selectedCharId = c.id;
@@ -215,26 +270,98 @@ function renderLobby(): void {
   }
 }
 
-function renderGallery(): void {
-  const grid = document.getElementById('gallery-grid')!;
-  grid.innerHTML = ALL_CAST_GALLERY.map(
-    (c) => `
-    <div class="gallery-item">
-      <img src="${c.portrait}" alt="${c.name}" />
-      <div class="g-name">${c.name}</div>
-      <div class="g-role">${c.role}</div>
-    </div>
-  `
-  ).join('');
+function renderShop(): void {
+  document.getElementById('shop-btn-total')!.textContent = `${save.buttons} 🟡`;
+  document.getElementById('tab-upgrades')!.classList.toggle('active', shopTab === 'upgrades');
+  document.getElementById('tab-chars')!.classList.toggle('active', shopTab === 'chars');
+
+  const grid = document.getElementById('shop-grid')!;
+  grid.innerHTML = '';
+
+  if (shopTab === 'upgrades') {
+    for (const up of SHOP_UPGRADES) {
+      const lv = save.upgrades[up.id] || 0;
+      const maxed = lv >= up.maxLevel;
+      const cost = getUpgradeCost(up, lv);
+      const canBuy = !maxed && save.buttons >= cost;
+
+      const card = document.createElement('div');
+      card.className = 'shop-item';
+      card.innerHTML = `
+        <div class="shop-item-head">
+          <span style="font-size:28px">${up.icon}</span>
+          <div>
+            <div style="font-weight:900; font-size:14px;">${up.name}</div>
+            <div style="font-size:11px; color:#ffd875;">LV.${lv} / ${up.maxLevel}</div>
+          </div>
+        </div>
+        <div style="font-size:12px; color:#d7e0f2;">${up.desc}</div>
+        <button class="shop-buy-btn" ${canBuy ? '' : 'disabled'}>
+          ${maxed ? 'MAX!' : `強化する (${cost} 🟡)`}
+        </button>
+      `;
+      card.querySelector('button')!.onclick = () => {
+        if (!canBuy) return;
+        save.buttons -= cost;
+        save.upgrades[up.id] = lv + 1;
+        writeSave(save);
+        sound.playLevelUp();
+        renderShop();
+        renderLobby();
+      };
+      grid.appendChild(card);
+    }
+  } else {
+    for (const c of ZOMBIE_CHARACTERS) {
+      const unlocked = save.unlockedChars.includes(c.id);
+      const canBuy = !unlocked && save.buttons >= c.unlockCost;
+      const card = document.createElement('div');
+      card.className = 'shop-item';
+      card.innerHTML = `
+        <div class="shop-item-head">
+          <img src="${c.portrait}" alt="${c.name}" />
+          <div>
+            <div style="font-weight:900; font-size:13px;">${c.name}</div>
+            <div style="font-size:10px; color:#ffd875;">${c.role}</div>
+          </div>
+        </div>
+        <div style="font-size:11px; color:#d7e0f2;">${c.tagline}</div>
+        <button class="shop-buy-btn" ${unlocked || !canBuy ? 'disabled' : ''}>
+          ${unlocked ? '解放済み ✓' : `アンロック (${c.unlockCost} 🟡)`}
+        </button>
+      `;
+      card.querySelector('button')!.onclick = () => {
+        if (!canBuy) return;
+        save.buttons -= c.unlockCost;
+        save.unlockedChars.push(c.id);
+        selectedCharId = c.id;
+        engine.setLobbyCharacter(c.id);
+        writeSave(save);
+        sound.playLevelUp();
+        renderShop();
+        renderLobby();
+      };
+      grid.appendChild(card);
+    }
+  }
 }
 
 function updateHud(hud: HudSnapshot): void {
   document.getElementById('hud-hp-num')!.textContent = `${hud.hp} / ${hud.maxHp}`;
   document.getElementById('hud-hp-fill')!.style.width = `${Math.max(0, Math.min(100, (hud.hp / hud.maxHp) * 100))}%`;
-  document.getElementById('hud-wave')!.textContent = `WAVE ${hud.wave} • ${formatTime(hud.elapsed)}`;
+  document.getElementById('hud-wave')!.textContent = `ST${hud.stageIndex} • WAVE ${hud.wave} • ${formatTime(hud.elapsed)}`;
   document.getElementById('hud-kills')!.textContent = `撃破 ${hud.kills} • 🟡 ${hud.buttons}`;
   document.getElementById('hud-lv')!.textContent = `LV.${hud.level}`;
   document.getElementById('hud-xp-fill')!.style.width = `${Math.min(100, (hud.xp / hud.xpNext) * 100)}%`;
+
+  const comboPill = document.getElementById('combo-pill')!;
+  if (hud.combo >= 3) {
+    comboPill.classList.remove('hidden');
+    document.getElementById('combo-num')!.textContent = `${hud.combo} COMBO!`;
+    document.getElementById('combo-bar-fill')!.style.width = `${hud.comboTimerRatio * 100}%`;
+  } else {
+    comboPill.classList.add('hidden');
+  }
 
   const feverBtn = document.getElementById('btn-fever')!;
   const feverPct = document.getElementById('fever-pct')!;
@@ -291,27 +418,66 @@ function showLevelUpChoices(choices: Array<{ patch: PatchDef; nextLevel: number 
 }
 
 function showResultModal(victory: boolean, summary: HudSnapshot): void {
+  // Save earned yellow buttons & stage unlocks!
+  save.buttons += summary.buttons;
+  save.bestKills = Math.max(save.bestKills, summary.kills);
+  if (victory) {
+    save.totalClears += 1;
+    if (summary.stageIndex >= save.unlockedStageIndex && summary.stageIndex < STAGES.length) {
+      save.unlockedStageIndex = summary.stageIndex + 1;
+    }
+  }
+  writeSave(save);
+
   document.getElementById('result-title')!.textContent = victory ? 'STAGE CLEAR!!' : 'ワタが尽きた…';
   document.getElementById('result-sub')!.textContent = victory
-    ? '暴走キャプテン・パッチを止めたぞ！'
-    : 'もう一度縫い直して墓場へリベンジだ！';
+    ? `${summary.stageName} 制覇！`
+    : '集めたボタンで強化してリベンジだ！';
   document.getElementById('res-time')!.textContent = formatTime(summary.elapsed);
   document.getElementById('res-kills')!.textContent = `${summary.kills}`;
   document.getElementById('res-level')!.textContent = `LV.${summary.level}`;
-  document.getElementById('res-buttons')!.textContent = `${summary.buttons}`;
+  document.getElementById('res-buttons')!.textContent = `+${summary.buttons} 🟡`;
+
+  const nextBtn = document.getElementById('btn-next-stage')!;
+  if (victory && summary.hasNextStage) {
+    nextBtn.classList.remove('hidden');
+  } else {
+    nextBtn.classList.add('hidden');
+  }
+
   resultModal.classList.remove('hidden');
 }
 
-function spawnFloatingText(x: number, y: number, text: string, color: string): void {
-  if (floatingLayer.childElementCount > 24) return;
+function spawnFloatingText(x: number, y: number, text: string, color: string, isCrit = false): void {
+  if (floatingLayer.childElementCount > 26) return;
   const el = document.createElement('div');
-  el.className = 'float-dmg';
+  el.className = `float-dmg ${isCrit ? 'crit' : ''}`;
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
   el.style.color = color;
   el.textContent = text;
   floatingLayer.appendChild(el);
   setTimeout(() => el.remove(), 680);
+}
+
+function handlePlayButton(): void {
+  sound.unlock();
+  const charDef = ZOMBIE_CHARACTERS.find((c) => c.id === selectedCharId) || ZOMBIE_CHARACTERS[0];
+  if (!save.unlockedChars.includes(charDef.id)) {
+    if (save.buttons >= charDef.unlockCost) {
+      save.buttons -= charDef.unlockCost;
+      save.unlockedChars.push(charDef.id);
+      writeSave(save);
+      sound.playLevelUp();
+      renderLobby();
+    } else {
+      shopTab = 'chars';
+      renderShop();
+      shopModal.classList.remove('hidden');
+    }
+    return;
+  }
+  startGame();
 }
 
 function startGame(): void {
@@ -324,7 +490,7 @@ function startGame(): void {
   levelupModal.classList.add('hidden');
   hudOverlay.classList.remove('hidden');
   updateAutoBtnVisual();
-  engine.startRun(selectedCharId, autoAttackMode);
+  engine.startRun(selectedCharId, selectedStageId, autoAttackMode, save);
 }
 
 function updateAutoBtnVisual(): void {
@@ -349,13 +515,22 @@ function syncMuteButtons(): void {
 }
 
 // Button bindings
-document.getElementById('btn-play')!.onclick = startGame;
+document.getElementById('btn-play')!.onclick = handlePlayButton;
 document.getElementById('btn-retry')!.onclick = startGame;
+document.getElementById('btn-next-stage')!.onclick = () => {
+  resultModal.classList.add('hidden');
+  const nextStageIdx = STAGES.findIndex((s) => s.id === selectedStageId) + 1;
+  if (nextStageIdx < STAGES.length) {
+    selectedStageId = STAGES[nextStageIdx].id;
+  }
+  engine.advanceToNextStage();
+};
 document.getElementById('btn-to-lobby')!.onclick = () => {
   resultModal.classList.add('hidden');
   hudOverlay.classList.add('hidden');
   lobbyOverlay.classList.remove('hidden');
   engine.returnToLobby();
+  renderLobby();
 };
 
 document.getElementById('btn-mode-toggle')!.onclick = () => {
@@ -389,17 +564,26 @@ document.getElementById('btn-quit')!.onclick = () => {
   hudOverlay.classList.add('hidden');
   lobbyOverlay.classList.remove('hidden');
   engine.returnToLobby();
+  renderLobby();
 };
 
-document.getElementById('btn-gallery')!.onclick = () => {
-  renderGallery();
-  galleryModal.classList.remove('hidden');
+document.getElementById('btn-shop')!.onclick = () => {
+  renderShop();
+  shopModal.classList.remove('hidden');
 };
-document.getElementById('btn-close-gallery')!.onclick = () => {
-  galleryModal.classList.add('hidden');
+document.getElementById('btn-close-shop')!.onclick = () => {
+  shopModal.classList.add('hidden');
+};
+document.getElementById('tab-upgrades')!.onclick = () => {
+  shopTab = 'upgrades';
+  renderShop();
+};
+document.getElementById('tab-chars')!.onclick = () => {
+  shopTab = 'chars';
+  renderShop();
 };
 
-// Action buttons (pointerdown for instant mobile response!)
+// Action buttons
 document.getElementById('btn-attack')!.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   sound.unlock();
@@ -416,7 +600,7 @@ document.getElementById('btn-fever')!.addEventListener('pointerdown', (e) => {
   engine.triggerFever();
 });
 
-// Virtual Joystick (Pointer Events: works for multi-touch on phone/tablet AND mouse drag!)
+// Virtual Joystick
 const joyZone = document.getElementById('joystick-zone')!;
 const joyKnob = document.getElementById('joystick-knob')!;
 let joyPointerId: number | null = null;

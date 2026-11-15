@@ -1,19 +1,43 @@
+export type BgmMode = 'main' | 'boss' | 'fever';
+
 export class SoundEngine {
   private ctx: AudioContext | null = null;
-  private mainBgm: HTMLAudioElement;
-  private feverBgm: HTMLAudioElement;
+  private tracks: Record<BgmMode, HTMLAudioElement>;
   private muted = false;
   private bgmStarted = false;
-  private currentMode: 'main' | 'fever' = 'main';
+  private currentMode: BgmMode = 'main';
 
   constructor() {
-    this.mainBgm = new Audio('./assets/audio/theme_main.mp3');
-    this.mainBgm.loop = true;
-    this.mainBgm.volume = 0.36;
+    this.tracks = {
+      main: new Audio('./assets/audio/theme_main.mp3'),
+      boss: new Audio('./assets/audio/theme_fever.mp3'),
+      fever: new Audio('./assets/audio/theme_fever.mp3'),
+    };
+    (Object.keys(this.tracks) as BgmMode[]).forEach((k) => {
+      this.tracks[k].loop = true;
+      this.tracks[k].volume = k === 'main' ? 0.34 : 0.4;
+    });
+  }
 
-    this.feverBgm = new Audio('./assets/audio/theme_fever.mp3');
-    this.feverBgm.loop = true;
-    this.feverBgm.volume = 0.42;
+  /**
+   * Allows switching BGM file URLs dynamically per stage or when user provides new audio files.
+   */
+  public setStageTracks(urls: { main?: string; boss?: string; fever?: string }): void {
+    const updateTrack = (mode: BgmMode, url?: string) => {
+      if (!url) return;
+      if (this.tracks[mode].getAttribute('data-src') === url) return;
+      const wasPlaying = !this.tracks[mode].paused;
+      this.tracks[mode].pause();
+      this.tracks[mode].src = url;
+      this.tracks[mode].setAttribute('data-src', url);
+      this.tracks[mode].load();
+      if (wasPlaying && !this.muted) {
+        void this.tracks[mode].play().catch(() => {});
+      }
+    };
+    updateTrack('main', urls.main);
+    updateTrack('boss', urls.boss);
+    updateTrack('fever', urls.fever);
   }
 
   public unlock(): void {
@@ -28,37 +52,33 @@ export class SoundEngine {
     }
   }
 
-  public startBgm(mode: 'main' | 'fever' = 'main'): void {
+  public startBgm(mode: BgmMode = 'main'): void {
     this.unlock();
     this.currentMode = mode;
     if (this.muted) return;
 
     this.bgmStarted = true;
-    if (mode === 'main') {
-      this.feverBgm.pause();
-      if (this.mainBgm.paused) {
-        void this.mainBgm.play().catch(() => {});
+    (Object.keys(this.tracks) as BgmMode[]).forEach((k) => {
+      if (k !== mode) {
+        this.tracks[k].pause();
       }
-    } else {
-      this.mainBgm.pause();
-      if (this.feverBgm.paused) {
-        this.feverBgm.currentTime = 0;
-        void this.feverBgm.play().catch(() => {});
-      }
+    });
+    const active = this.tracks[mode];
+    if (active.paused) {
+      if (mode === 'fever') active.currentTime = 0;
+      void active.play().catch(() => {});
     }
   }
 
   public stopBgm(): void {
-    this.mainBgm.pause();
-    this.feverBgm.pause();
+    (Object.keys(this.tracks) as BgmMode[]).forEach((k) => this.tracks[k].pause());
     this.bgmStarted = false;
   }
 
   public toggleMute(): boolean {
     this.muted = !this.muted;
     if (this.muted) {
-      this.mainBgm.pause();
-      this.feverBgm.pause();
+      (Object.keys(this.tracks) as BgmMode[]).forEach((k) => this.tracks[k].pause());
     } else if (this.bgmStarted) {
       this.startBgm(this.currentMode);
     }
@@ -91,8 +111,11 @@ export class SoundEngine {
     osc.stop(now + duration);
   }
 
-  public playHit(heavy = false): void {
-    if (heavy) {
+  public playHit(heavy = false, crit = false): void {
+    if (crit) {
+      this.playTone(460, 140, 0.12, 'sawtooth', 0.15);
+      this.playTone(720, 960, 0.08, 'triangle', 0.1);
+    } else if (heavy) {
       this.playTone(170, 52, 0.14, 'square', 0.16);
       this.playTone(320, 110, 0.08, 'triangle', 0.12);
     } else {
@@ -101,7 +124,7 @@ export class SoundEngine {
   }
 
   public playKick(): void {
-    this.playTone(340, 95, 0.11, 'sine', 0.14);
+    this.playTone(340, 95, 0.11, 'sine', 0.13);
   }
 
   public playDash(): void {
@@ -114,6 +137,16 @@ export class SoundEngine {
 
   public playPickup(): void {
     this.playTone(680, 1080, 0.07, 'sine', 0.07);
+  }
+
+  public playComboMilestone(): void {
+    this.playTone(587.33, 880, 0.14, 'triangle', 0.13);
+  }
+
+  public playBossWarn(): void {
+    [220, 180, 240].forEach((f, i) => {
+      setTimeout(() => this.playTone(f, f * 0.7, 0.22, 'sawtooth', 0.14), i * 180);
+    });
   }
 
   public playHurt(): void {

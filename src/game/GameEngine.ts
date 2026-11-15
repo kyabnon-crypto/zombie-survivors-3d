@@ -1,12 +1,18 @@
 import * as THREE from 'three';
 import { ZOMBIE_CHARACTERS, type ZombieCharDef } from '../data/characters';
 import { PATCH_CATALOG, type PatchDef } from '../data/patches';
+import { STAGES, type StageDef } from '../data/stages';
+import type { SaveData } from '../data/save';
 import { SoundEngine } from '../audio/SoundEngine';
-import { ARENA_RADIUS, buildGraveyardArena, type GraveyardArena } from './Arena';
+import { ARENA_RADIUS, buildStageArena, type StageArena } from './Arena';
 import { buildEnemyPuppet, buildPlayablePuppet, type EnemyKind, type PuppetRig } from './CharacterModels';
 import { makeFeltMaterial } from './FeltMaterials';
+import { loadNormalizedGlb } from './GlbLoader';
 
 export interface HudSnapshot {
+  stageIndex: number;
+  stageName: string;
+  hasNextStage: boolean;
   hp: number;
   maxHp: number;
   xp: number;
@@ -14,6 +20,8 @@ export interface HudSnapshot {
   level: number;
   kills: number;
   buttons: number;
+  combo: number;
+  comboTimerRatio: number;
   elapsed: number;
   wave: number;
   fever: number;
@@ -30,7 +38,7 @@ export interface GameCallbacks {
   onHudUpdate: (hud: HudSnapshot) => void;
   onLevelUp: (choices: Array<{ patch: PatchDef; nextLevel: number }>) => void;
   onGameOver: (victory: boolean, summary: HudSnapshot) => void;
-  onFloatingText: (screenX: number, screenY: number, text: string, color: string) => void;
+  onFloatingText: (screenX: number, screenY: number, text: string, color: string, isCrit?: boolean) => void;
 }
 
 interface EnemyEntity {
@@ -53,10 +61,15 @@ interface EnemyEntity {
   poisonTimer: number;
   slipSpin: number;
   isBoss: boolean;
+  bossActionTimer: number;
+  bossPatternIdx: number;
+  bossDashTimer: number;
+  bossDashVx: number;
+  bossDashVz: number;
 }
 
 interface ProjectileEntity {
-  kind: 'rabbit' | 'eyeball' | 'arcane';
+  kind: 'rabbit' | 'eyeball' | 'arcane' | 'flask' | 'wand';
   mesh: THREE.Mesh;
   x: number;
   y: number;
@@ -67,6 +80,16 @@ interface ProjectileEntity {
   life: number;
   bouncesLeft: number;
   hitIds: Set<number>;
+}
+
+interface EnemyBulletEntity {
+  mesh: THREE.Mesh;
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  damage: number;
+  life: number;
 }
 
 interface TrapEntity {
@@ -113,10 +136,12 @@ export class GameEngine {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private arena: GraveyardArena;
+  private arena: StageArena;
+  private currentStage: StageDef = STAGES[0];
 
   private charDef: ZombieCharDef = ZOMBIE_CHARACTERS[0];
   private playerRig: PuppetRig | null = null;
+  private customGlbGroup: THREE.Group | null = null;
   private playerX = 0;
   private playerZ = 0;
   private playerYaw = 0;
@@ -128,17 +153,23 @@ export class GameEngine {
   private keys = new Set<string>();
   public autoAttack = true;
 
+  // Shop Multipliers
+  private xpMult = 1;
+  private btnMult = 1;
+
   // Player stats
   private hp = 100;
   private maxHp = 100;
   private speedMult = 1;
   private damageMult = 1;
-  private pickupRadius = 4.2;
+  private pickupRadius = 4.4;
   private xp = 0;
   private xpNext = 45;
   private level = 1;
   private kills = 0;
   private buttons = 0;
+  private combo = 0;
+  private comboTimer = 0;
   private fever = 0;
   private feverActive = false;
   private feverTimer = 0;
@@ -155,6 +186,9 @@ export class GameEngine {
   private eyeballTimer = 1.8;
   private flaskTimer = 2.4;
   private chickenTimer = 2.6;
+  private whipTimer = 2.0;
+  private cupcakeTimer = 3.2;
+  private teddyTimer = 1.6;
   private whiskAngle = 0;
   private whiskMeshes: THREE.Mesh[] = [];
   private activePatches: Record<string, number> = {};
@@ -163,6 +197,7 @@ export class GameEngine {
   private nextEnemyId = 1;
   private enemies: EnemyEntity[] = [];
   private projectiles: ProjectileEntity[] = [];
+  private enemyBullets: EnemyBulletEntity[] = [];
   private traps: TrapEntity[] = [];
   private pickups: PickupEntity[] = [];
   private particles: CottonParticle[] = [];
@@ -177,6 +212,12 @@ export class GameEngine {
   private buttonMat = new THREE.MeshStandardMaterial({ color: 0xffd15c, emissive: 0xaa6600, emissiveIntensity: 0.4, roughness: 0.4 });
   private breadGeo = new THREE.BoxGeometry(0.42, 0.3, 0.32);
   private breadMat = makeFeltMaterial(0xd9964e);
+  private bossBulletGeo = new THREE.SphereGeometry(0.28, 10, 10);
+  private bossBulletMat = new THREE.MeshStandardMaterial({
+    color: 0xff4fd8,
+    emissive: 0xd91eb2,
+    emissiveIntensity: 1.35,
+  });
 
   // Loop state
   private rafId = 0;
@@ -209,7 +250,7 @@ export class GameEngine {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 140);
-    this.arena = buildGraveyardArena(this.scene);
+    this.arena = buildStageArena(this.scene, this.currentStage);
 
     this.handleResize();
     window.addEventListener('resize', this.handleResize);
@@ -235,7 +276,6 @@ export class GameEngine {
     const h = this.container.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
-    // Adaptive FOV for Portrait vs Landscape mobile/tablet!
     this.camera.fov = w < h ? 58 : 46;
     this.camera.updateProjectionMatrix();
   };
@@ -263,40 +303,93 @@ export class GameEngine {
     this.joyZ = nz;
   }
 
+  public setLobbyStage(stageId: string): void {
+    const st = STAGES.find((s) => s.id === stageId) || STAGES[0];
+    if (st.id === this.currentStage.id) return;
+    this.currentStage = st;
+    this.arena.dispose();
+    this.arena = buildStageArena(this.scene, this.currentStage);
+    this.sound.setStageTracks({
+      main: st.bgmUrl,
+      boss: st.bossBgmUrl,
+      fever: st.feverBgmUrl,
+    });
+  }
+
   public setLobbyCharacter(charId: string): void {
     const found = ZOMBIE_CHARACTERS.find((c) => c.id === charId) || ZOMBIE_CHARACTERS[0];
     this.charDef = found;
     if (this.playerRig) {
       this.scene.remove(this.playerRig.root);
     }
+    this.customGlbGroup = null;
     this.playerRig = buildPlayablePuppet(found.id);
     this.playerRig.root.position.set(0, 0, 0);
     this.scene.add(this.playerRig.root);
+
+    // Optional .glb precision model upgrade when file exists
+    const glbUrl = found.glbPath || `./assets/models/${found.id}.glb`;
+    void loadNormalizedGlb(glbUrl, 1.95).then((glb) => {
+      if (!glb || !this.playerRig || this.charDef.id !== found.id) return;
+      this.playerRig.body.visible = false;
+      this.customGlbGroup = glb;
+      this.playerRig.root.add(glb);
+    });
   }
 
-  public startRun(charId: string, autoAttackMode: boolean): void {
+  public startRun(charId: string, stageId: string, autoAttackMode: boolean, save: SaveData): void {
     this.clearEntities();
     this.lobbyPreviewMode = false;
     this.autoAttack = autoAttackMode;
+    this.setLobbyStage(stageId);
     this.setLobbyCharacter(charId);
+
+    const up = save.upgrades;
+    this.damageMult = 1 + (up.atk || 0) * 0.1;
+    this.maxHp = this.charDef.hp + (up.hp || 0) * 20;
+    this.hp = this.maxHp;
+    this.speedMult = 1 + (up.spd || 0) * 0.06;
+    this.pickupRadius = 4.4 * (1 + (up.magnet || 0) * 0.2);
+    this.xpMult = 1 + (up.xpMult || 0) * 0.12;
+    this.btnMult = 1 + (up.btnMult || 0) * 0.25;
 
     this.playerX = 0;
     this.playerZ = 0;
     this.playerYaw = 0;
-    this.maxHp = this.charDef.hp;
-    this.hp = this.maxHp;
-    this.speedMult = 1;
-    this.damageMult = 1;
-    this.pickupRadius = 4.4;
     this.xp = 0;
     this.xpNext = 45;
     this.level = 1;
     this.kills = 0;
     this.buttons = 0;
+    this.combo = 0;
+    this.comboTimer = 0;
     this.fever = 25;
     this.feverActive = false;
     this.feverTimer = 0;
-    this.invulnTimer = 0.5;
+
+    this.activePatches = { [this.charDef.startingPatch]: 1 };
+    this.syncWhiskMeshes();
+    this.beginStageWaveState();
+  }
+
+  public advanceToNextStage(): boolean {
+    const nextIdx = STAGES.findIndex((s) => s.id === this.currentStage.id) + 1;
+    if (nextIdx >= STAGES.length) return false;
+    const nextStage = STAGES[nextIdx];
+
+    this.clearEntities();
+    this.setLobbyStage(nextStage.id);
+    this.syncWhiskMeshes();
+
+    this.playerX = 0;
+    this.playerZ = 0;
+    this.hp = Math.min(this.maxHp, this.hp + Math.round(this.maxHp * 0.5));
+    this.beginStageWaveState();
+    return true;
+  }
+
+  private beginStageWaveState(): void {
+    this.invulnTimer = 0.7;
     this.dashTimer = 0;
     this.dashCooldown = 0;
     this.elapsed = 0;
@@ -307,13 +400,14 @@ export class GameEngine {
     this.paused = false;
     this.running = true;
 
-    this.activePatches = { [this.charDef.startingPatch]: 1 };
-    this.syncWhiskMeshes();
-
-    // Seed a few initial enemies around player so action starts immediately!
     for (let i = 0; i < 6; i++) {
       this.spawnEnemy('scissor');
     }
+    this.sound.setStageTracks({
+      main: this.currentStage.bgmUrl,
+      boss: this.currentStage.bossBgmUrl,
+      fever: this.currentStage.feverBgmUrl,
+    });
     this.sound.startBgm('main');
     this.emitHud();
   }
@@ -375,6 +469,7 @@ export class GameEngine {
   private clearEntities(): void {
     this.enemies.forEach((e) => this.scene.remove(e.mesh));
     this.projectiles.forEach((p) => this.scene.remove(p.mesh));
+    this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
     this.traps.forEach((t) => this.scene.remove(t.mesh));
     this.pickups.forEach((p) => this.scene.remove(p.mesh));
     this.particles.forEach((p) => this.scene.remove(p.mesh));
@@ -383,6 +478,7 @@ export class GameEngine {
 
     this.enemies = [];
     this.projectiles = [];
+    this.enemyBullets = [];
     this.traps = [];
     this.pickups = [];
     this.particles = [];
@@ -392,10 +488,10 @@ export class GameEngine {
 
   public triggerDash(): void {
     if (!this.running || this.paused || this.dashCooldown > 0) return;
-    const baseCd = Math.max(0.75, 1.65 - (this.activePatches['stitch_boots'] || 0) * 0.14);
+    const baseCd = Math.max(0.72, 1.6 - (this.activePatches['stitch_boots'] || 0) * 0.14);
     this.dashCooldown = baseCd;
     this.dashTimer = 0.22;
-    this.invulnTimer = Math.max(this.invulnTimer, 0.32);
+    this.invulnTimer = Math.max(this.invulnTimer, 0.36);
 
     const { dx, dz } = this.getMoveVector();
     if (Math.hypot(dx, dz) > 0.1) {
@@ -414,18 +510,21 @@ export class GameEngine {
     this.fever = 0;
     this.feverActive = true;
     this.feverTimer = 8.0;
-    this.invulnTimer = Math.max(this.invulnTimer, 1.5);
-    this.shakeStrength = 0.55;
-    this.spawnShockwave(this.playerX, this.playerZ, 0xff5fd7, 9.5);
-    this.spawnFloatingAtWorld(this.playerX, 2.4, this.playerZ, 'ZOMBIE FEVER!!', '#ff7cf5');
+    this.invulnTimer = Math.max(this.invulnTimer, 1.6);
+    this.shakeStrength = 0.6;
+    this.spawnShockwave(this.playerX, this.playerZ, 0xff5fd7, 10.5);
+    this.spawnFloatingAtWorld(this.playerX, 2.5, this.playerZ, 'ZOMBIE FEVER!!', '#ff7cf5', true);
     this.sound.playFever();
     this.sound.startBgm('fever');
 
-    // Blast nearby enemies on activation
+    // Clear enemy bullets on fever activation!
+    this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
+    this.enemyBullets = [];
+
     for (const e of this.enemies) {
       const dist = Math.hypot(e.x - this.playerX, e.z - this.playerZ);
-      if (dist < 8.5) {
-        this.damageEnemy(e, 65 * this.damageMult, true);
+      if (dist < 9.5) {
+        this.damageEnemy(e, 75 * this.damageMult, true);
       }
     }
     this.emitHud();
@@ -434,48 +533,71 @@ export class GameEngine {
   public triggerPrimaryAttack(manual = false): void {
     if (!this.running || this.paused) return;
     if (!manual && this.primaryTimer > 0) return;
-    if (manual && this.primaryTimer > 0.15) return;
+    if (manual && this.primaryTimer > 0.14) return;
 
     const feverFactor = this.feverActive ? 0.55 : 1.0;
     this.primaryTimer = this.charDef.attackCooldown * feverFactor;
     this.playerScaleBounce = 1.24;
 
-    const nearest = this.findNearestEnemy(this.playerX, this.playerZ, this.charDef.attackRange + 3);
+    const nearest = this.findNearestEnemy(this.playerX, this.playerZ, this.charDef.attackRange + 3.5);
     if (nearest) {
       this.playerYaw = Math.atan2(nearest.x - this.playerX, nearest.z - this.playerZ);
     }
 
-    if (this.charDef.id === 'green_glassy') {
-      // Ranged arcane book bolts!
-      const count = this.feverActive ? 3 : 1;
+    const style = this.charDef.attackStyle;
+    const baseDmg = this.charDef.attackPower * this.damageMult * (this.feverActive ? 1.45 : 1.0);
+
+    // Ranged projectile styles
+    if (
+      style === 'arcane_book' ||
+      style === 'magic_wand' ||
+      style === 'eyeball_shot' ||
+      style === 'flask_throw'
+    ) {
+      const count = this.feverActive ? 3 : style === 'eyeball_shot' ? 2 : 1;
+      const pKind =
+        style === 'eyeball_shot'
+          ? 'eyeball'
+          : style === 'magic_wand'
+            ? 'wand'
+            : style === 'flask_throw'
+              ? 'flask'
+              : 'arcane';
       for (let i = 0; i < count; i++) {
-        const spread = (i - (count - 1) / 2) * 0.24;
+        const spread = (i - (count - 1) / 2) * 0.25;
         const ang = this.playerYaw + spread;
-        this.spawnProjectile('arcane', this.playerX, 1.0, this.playerZ, Math.sin(ang) * 18, Math.cos(ang) * 18, this.charDef.attackPower * this.damageMult, 0);
+        this.spawnProjectile(
+          pKind,
+          this.playerX,
+          1.0,
+          this.playerZ,
+          Math.sin(ang) * 18,
+          Math.cos(ang) * 18,
+          baseDmg,
+          pKind === 'eyeball' ? 2 : 0
+        );
       }
       this.sound.playKick();
       return;
     }
 
-    // Melee AoE strike (Red Hatter spin kick, Blue Partin cone smash, Chef whisk slash)
+    // Melee / AoE styles
     const range = this.charDef.attackRange * (this.feverActive ? 1.35 : 1.0);
-    const dmg = this.charDef.attackPower * this.damageMult * (this.feverActive ? 1.45 : 1.0);
-    const ringColor =
-      this.charDef.id === 'red_hatter' ? 0xff6259 : this.charDef.id === 'blue_partin' ? 0x45c4ff : 0xc07dff;
+    const ringHex = parseInt(this.charDef.primaryColor.replace('#', ''), 16) || 0xff6259;
 
-    this.spawnShockwave(this.playerX, this.playerZ, ringColor, range);
+    this.spawnShockwave(this.playerX, this.playerZ, ringHex, range);
     this.sound.playKick();
 
     let hitAny = false;
     for (const e of this.enemies) {
       const dist = Math.hypot(e.x - this.playerX, e.z - this.playerZ);
       if (dist <= range + e.radius) {
-        this.damageEnemy(e, dmg, true);
+        this.damageEnemy(e, baseDmg, true, style === 'bat_slam' ? 14 : 8.5);
         hitAny = true;
       }
     }
-    if (hitAny && this.charDef.id === 'blue_partin') {
-      this.shakeStrength = Math.max(this.shakeStrength, 0.22);
+    if (hitAny && (style === 'cone_smash' || style === 'bat_slam')) {
+      this.shakeStrength = Math.max(this.shakeStrength, 0.24);
     }
   }
 
@@ -504,6 +626,9 @@ export class GameEngine {
       this.arena.update(this.animClock);
       this.playerRig.root.rotation.y = Math.sin(this.animClock * 0.7) * 0.45;
       this.animatePuppet(this.playerRig, true, this.animClock);
+      if (this.customGlbGroup) {
+        this.customGlbGroup.position.y = Math.abs(Math.sin(this.animClock * 5)) * 0.1;
+      }
       const isPortrait = (this.container.clientWidth || 1) < (this.container.clientHeight || 1);
       this.camera.position.set(0, isPortrait ? 4.4 : 3.6, isPortrait ? 7.8 : 6.4);
       this.camera.lookAt(0, 1.15, 0);
@@ -526,14 +651,21 @@ export class GameEngine {
 
   private stepSimulation(dt: number): void {
     this.elapsed += dt;
-    this.wave = this.elapsed < 35 ? 1 : this.elapsed < 75 ? 2 : 3;
+    const bossT = this.currentStage.bossSpawnTime;
+    this.wave = this.elapsed < bossT * 0.45 ? 1 : this.elapsed < bossT ? 2 : 3;
 
-    // Fever timer
+    if (this.comboTimer > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) {
+        this.combo = 0;
+      }
+    }
+
     if (this.feverActive) {
       this.feverTimer -= dt;
       if (this.feverTimer <= 0) {
         this.feverActive = false;
-        this.sound.startBgm('main');
+        this.sound.startBgm(this.bossSpawned ? 'boss' : 'main');
       }
     }
 
@@ -541,7 +673,6 @@ export class GameEngine {
     if (this.dashCooldown > 0) this.dashCooldown -= dt;
     if (this.primaryTimer > 0) this.primaryTimer -= dt;
 
-    // Player movement
     const { dx, dz } = this.getMoveVector();
     let moving = false;
     if (this.dashTimer > 0) {
@@ -557,7 +688,6 @@ export class GameEngine {
       moving = true;
     }
 
-    // Clamp to arena & obstacles
     const distFromCenter = Math.hypot(this.playerX, this.playerZ);
     if (distFromCenter > ARENA_RADIUS - 1.2) {
       const s = (ARENA_RADIUS - 1.2) / distFromCenter;
@@ -581,33 +711,26 @@ export class GameEngine {
       this.playerScaleBounce += (1 - this.playerScaleBounce) * Math.min(1, dt * 14);
       const s = this.playerScaleBounce * (this.feverActive ? 1.15 : 1.0);
       this.playerRig.root.scale.set(s, s, s);
-      // Invulnerability blink
       this.playerRig.root.visible = this.invulnTimer <= 0 || Math.floor(this.animClock * 18) % 2 === 0;
       this.animatePuppet(this.playerRig, moving, this.animClock);
     }
 
-    // Auto primary attack
     if (this.autoAttack && this.primaryTimer <= 0 && this.enemies.length > 0) {
-      const near = this.findNearestEnemy(this.playerX, this.playerZ, this.charDef.attackRange + 1.2);
+      const near = this.findNearestEnemy(this.playerX, this.playerZ, this.charDef.attackRange + 1.4);
       if (near) {
         this.triggerPrimaryAttack(false);
       }
     }
 
-    // Update Patch Weapons
     this.updatePatches(dt);
-
-    // Spawn Enemies & Boss
     this.updateSpawning(dt);
-
-    // Update World Entities
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
+    this.updateEnemyBullets(dt);
     this.updateTraps(dt);
     this.updatePickups(dt);
     this.updateParticles(dt);
 
-    // Sync HUD at ~15Hz
     this.hudSyncTimer += dt;
     if (this.hudSyncTimer >= 0.065) {
       this.hudSyncTimer = 0;
@@ -616,7 +739,6 @@ export class GameEngine {
   }
 
   private animatePuppet(rig: PuppetRig, moving: boolean, t: number): void {
-    // Quantize time slightly for authentic stop-motion puppet feel!
     const qt = Math.floor(t * 16) / 16;
     const speed = moving ? 11 : 3.5;
     const amp = moving ? 0.68 : 0.08;
@@ -631,7 +753,6 @@ export class GameEngine {
   }
 
   private updatePatches(dt: number): void {
-    // 1. Spring Whisk orbiting
     const whiskLv = this.activePatches['spring_whisk'] || 0;
     if (whiskLv > 0 && this.whiskMeshes.length > 0) {
       this.whiskAngle += dt * (3.2 + whiskLv * 0.45);
@@ -652,22 +773,20 @@ export class GameEngine {
       });
     }
 
-    // 2. Banana Slip Trap
     const bananaLv = this.activePatches['banana_slip'] || 0;
     if (bananaLv > 0) {
       this.bananaTimer -= dt;
       if (this.bananaTimer <= 0) {
-        this.bananaTimer = Math.max(1.4, 3.4 - bananaLv * 0.38);
-        this.spawnBananaTrap(this.playerX, this.playerZ, 22 + bananaLv * 9);
+        this.bananaTimer = Math.max(1.4, 3.3 - bananaLv * 0.35);
+        this.spawnBananaTrap(this.playerX, this.playerZ, 24 + bananaLv * 9);
       }
     }
 
-    // 3. Magic Rabbit Homing Missile
     const rabbitLv = this.activePatches['magic_rabbit'] || 0;
     if (rabbitLv > 0) {
       this.rabbitTimer -= dt;
       if (this.rabbitTimer <= 0) {
-        this.rabbitTimer = Math.max(0.7, 1.8 - rabbitLv * 0.2);
+        this.rabbitTimer = Math.max(0.65, 1.75 - rabbitLv * 0.2);
         const count = rabbitLv >= 4 ? 2 : 1;
         for (let i = 0; i < count; i++) {
           const target = this.findNearestEnemy(this.playerX, this.playerZ, 20);
@@ -679,43 +798,83 @@ export class GameEngine {
       }
     }
 
-    // 4. Eyeball Bounce
     const eyeLv = this.activePatches['eyeball_bounce'] || 0;
     if (eyeLv > 0) {
       this.eyeballTimer -= dt;
       if (this.eyeballTimer <= 0) {
-        this.eyeballTimer = Math.max(0.9, 2.2 - eyeLv * 0.22);
+        this.eyeballTimer = Math.max(0.85, 2.1 - eyeLv * 0.22);
         const target = this.findNearestEnemy(this.playerX, this.playerZ, 18);
         const ang = target ? Math.atan2(target.x - this.playerX, target.z - this.playerZ) : this.playerYaw;
         this.spawnProjectile('eyeball', this.playerX, 1.0, this.playerZ, Math.sin(ang) * 15, Math.cos(ang) * 15, (20 + eyeLv * 7) * this.damageMult, 2 + eyeLv);
       }
     }
 
-    // 5. Poison Flask
     const flaskLv = this.activePatches['poison_flask'] || 0;
     if (flaskLv > 0) {
       this.flaskTimer -= dt;
       if (this.flaskTimer <= 0) {
-        this.flaskTimer = Math.max(1.8, 3.6 - flaskLv * 0.32);
+        this.flaskTimer = Math.max(1.7, 3.5 - flaskLv * 0.32);
         const target = this.findNearestEnemy(this.playerX, this.playerZ, 14);
         const tx = target ? target.x : this.playerX + (Math.random() - 0.5) * 8;
         const tz = target ? target.z : this.playerZ + (Math.random() - 0.5) * 8;
-        this.spawnAcidTrap(tx, tz, 2.4 + flaskLv * 0.3, 10 + flaskLv * 4);
+        this.spawnAcidTrap(tx, tz, 2.4 + flaskLv * 0.3, 11 + flaskLv * 4);
       }
     }
 
-    // 6. Chicken Honk Shockwave
     const chickenLv = this.activePatches['chicken_honk'] || 0;
     if (chickenLv > 0) {
       this.chickenTimer -= dt;
       if (this.chickenTimer <= 0) {
-        this.chickenTimer = Math.max(1.6, 3.5 - chickenLv * 0.35);
-        const rad = 4.6 + chickenLv * 0.55;
+        this.chickenTimer = Math.max(1.6, 3.4 - chickenLv * 0.35);
+        const rad = 4.8 + chickenLv * 0.55;
         this.spawnShockwave(this.playerX, this.playerZ, 0xf5c842, rad);
         for (const e of this.enemies) {
           if (Math.hypot(e.x - this.playerX, e.z - this.playerZ) <= rad + e.radius) {
-            this.damageEnemy(e, (18 + chickenLv * 8) * this.damageMult, true);
+            this.damageEnemy(e, (19 + chickenLv * 8) * this.damageMult, true);
           }
+        }
+      }
+    }
+
+    const whipLv = this.activePatches['bandage_whip'] || 0;
+    if (whipLv > 0) {
+      this.whipTimer -= dt;
+      if (this.whipTimer <= 0) {
+        this.whipTimer = Math.max(1.1, 2.3 - whipLv * 0.22);
+        const rad = 5.4 + whipLv * 0.45;
+        this.spawnShockwave(this.playerX, this.playerZ, 0xe8b5cc, rad);
+        for (const e of this.enemies) {
+          if (Math.hypot(e.x - this.playerX, e.z - this.playerZ) <= rad + e.radius) {
+            this.damageEnemy(e, (21 + whipLv * 7) * this.damageMult, true);
+          }
+        }
+      }
+    }
+
+    const cupcakeLv = this.activePatches['brain_cupcake'] || 0;
+    if (cupcakeLv > 0) {
+      this.cupcakeTimer -= dt;
+      if (this.cupcakeTimer <= 0) {
+        this.cupcakeTimer = Math.max(2.4, 4.4 - cupcakeLv * 0.35);
+        this.hp = Math.min(this.maxHp, this.hp + 4 + cupcakeLv * 2);
+        this.spawnShockwave(this.playerX, this.playerZ, 0xff7096, 4.4 + cupcakeLv * 0.4);
+        for (const e of this.enemies) {
+          if (Math.hypot(e.x - this.playerX, e.z - this.playerZ) <= 4.4 + cupcakeLv * 0.4 + e.radius) {
+            this.damageEnemy(e, (16 + cupcakeLv * 6) * this.damageMult, true);
+          }
+        }
+      }
+    }
+
+    const teddyLv = this.activePatches['teddy_turret'] || 0;
+    if (teddyLv > 0) {
+      this.teddyTimer -= dt;
+      if (this.teddyTimer <= 0) {
+        this.teddyTimer = Math.max(0.85, 1.95 - teddyLv * 0.2);
+        const target = this.findNearestEnemy(this.playerX, this.playerZ, 16);
+        if (target) {
+          const ang = Math.atan2(target.x - this.playerX, target.z - this.playerZ);
+          this.spawnProjectile('rabbit', this.playerX, 0.9, this.playerZ, Math.sin(ang) * 15, Math.cos(ang) * 15, (20 + teddyLv * 7) * this.damageMult, 0);
         }
       }
     }
@@ -729,18 +888,27 @@ export class GameEngine {
       for (let i = 0; i < batch; i++) {
         const r = Math.random();
         let kind: EnemyKind = 'scissor';
-        if (this.wave >= 2 && r > 0.72) kind = 'vacuum';
-        else if (r > 0.45) kind = 'crow';
+        if (this.wave >= 2 && r > 0.7) kind = 'vacuum';
+        else if (r > 0.42) kind = 'crow';
         this.spawnEnemy(kind);
       }
-      this.spawnTimer = this.wave === 1 ? 1.35 : this.wave === 2 ? 1.0 : 0.85;
+      this.spawnTimer = this.wave === 1 ? 1.3 : this.wave === 2 ? 0.95 : 0.85;
     }
 
     if (this.wave >= 3 && !this.bossSpawned) {
       this.bossSpawned = true;
-      this.spawnEnemy('boss_patch');
-      this.spawnFloatingAtWorld(this.playerX, 2.8, this.playerZ, 'BOSS 出現: キャプテン・パッチ！', '#ff5983');
-      this.shakeStrength = 0.45;
+      this.spawnEnemy(this.currentStage.bossKind);
+      this.spawnFloatingAtWorld(
+        this.playerX,
+        2.9,
+        this.playerZ,
+        `BOSS 出現: ${this.currentStage.bossName}`,
+        '#ff5983',
+        true
+      );
+      this.shakeStrength = 0.5;
+      this.sound.playBossWarn();
+      if (!this.feverActive) this.sound.startBgm('boss');
     }
   }
 
@@ -754,15 +922,17 @@ export class GameEngine {
     model.root.position.set(x, 0, z);
     this.scene.add(model.root);
 
-    const scaleHp = 1 + this.elapsed * 0.012;
-    const stats =
-      kind === 'boss_patch'
-        ? { hp: 1450, speed: 3.4, radius: 1.45, damage: 22, isBoss: true }
-        : kind === 'vacuum'
-          ? { hp: 78 * scaleHp, speed: 3.1, radius: 0.75, damage: 14, isBoss: false }
-          : kind === 'crow'
-            ? { hp: 32 * scaleHp, speed: 5.1, radius: 0.62, damage: 9, isBoss: false }
-            : { hp: 46 * scaleHp, speed: 3.8, radius: 0.68, damage: 11, isBoss: false };
+    const isBoss = kind.startsWith('boss_');
+    const stageScale = this.currentStage.enemyHpMult;
+    const scaleHp = (1 + this.elapsed * 0.012) * stageScale;
+
+    const stats = isBoss
+      ? { hp: this.currentStage.bossHp, speed: 3.5, radius: 1.5, damage: 22, isBoss: true }
+      : kind === 'vacuum'
+        ? { hp: 78 * scaleHp, speed: 3.1, radius: 0.75, damage: 14, isBoss: false }
+        : kind === 'crow'
+          ? { hp: 32 * scaleHp, speed: 5.2, radius: 0.62, damage: 9, isBoss: false }
+          : { hp: 46 * scaleHp, speed: 3.85, radius: 0.68, damage: 11, isBoss: false };
 
     this.enemies.push({
       id: this.nextEnemyId++,
@@ -784,6 +954,11 @@ export class GameEngine {
       poisonTimer: 0,
       slipSpin: 0,
       isBoss: stats.isBoss,
+      bossActionTimer: 2.2,
+      bossPatternIdx: 0,
+      bossDashTimer: 0,
+      bossDashVx: 0,
+      bossDashVz: 0,
     });
   }
 
@@ -815,14 +990,27 @@ export class GameEngine {
         const dx = this.playerX - e.x;
         const dz = this.playerZ - e.z;
         const dist = Math.hypot(dx, dz) || 1;
-        e.x += ((dx / dist) * e.speed + e.vx) * dt;
-        e.z += ((dz / dist) * e.speed + e.vz) * dt;
-        e.vx *= 0.82;
-        e.vz *= 0.82;
-        e.mesh.rotation.y = Math.atan2(dx, dz);
 
-        // Animate parts
-        if (e.kind === 'scissor' && e.animPart2) {
+        if (e.isBoss && e.bossDashTimer > 0) {
+          e.bossDashTimer -= dt;
+          e.x += e.bossDashVx * dt;
+          e.z += e.bossDashVz * dt;
+        } else {
+          e.x += ((dx / dist) * e.speed + e.vx) * dt;
+          e.z += ((dz / dist) * e.speed + e.vz) * dt;
+          e.vx *= 0.82;
+          e.vz *= 0.82;
+          e.mesh.rotation.y = Math.atan2(dx, dz);
+        }
+
+        // Boss Danmaku Patterns!
+        if (e.isBoss) {
+          e.bossActionTimer -= dt;
+          if (e.bossActionTimer <= 0) {
+            this.executeBossPattern(e, dx / dist, dz / dist);
+          }
+          e.mesh.position.y = Math.abs(Math.sin(this.animClock * 4.5)) * 0.25;
+        } else if (e.kind === 'scissor' && e.animPart2) {
           const snap = Math.abs(Math.sin(this.animClock * 9 + e.id)) * 0.45;
           e.animPart.rotation.z = 0.1 + snap;
           e.animPart2.rotation.z = -0.1 - snap;
@@ -830,30 +1018,18 @@ export class GameEngine {
           const flap = Math.sin(this.animClock * 13 + e.id) * 0.55;
           e.animPart.rotation.z = flap;
           e.animPart2.rotation.z = -flap;
-        } else if (e.kind === 'boss_patch') {
-          e.mesh.position.y = Math.abs(Math.sin(this.animClock * 4.5)) * 0.25;
         }
 
-        // Player collision
         if (dist < e.radius + 0.65 && this.invulnTimer <= 0) {
           if (this.feverActive) {
             this.damageEnemy(e, 45 * this.damageMult, true);
           } else {
-            this.hp = Math.max(0, this.hp - e.damage);
-            this.invulnTimer = 0.72;
-            this.shakeStrength = 0.35;
-            this.sound.playHurt();
-            this.spawnCottonBurst(this.playerX, 0.9, this.playerZ, 7);
-            this.emitHud();
-            if (this.hp <= 0) {
-              this.endRun(false);
-              return;
-            }
+            this.hurtPlayer(e.damage);
+            if (this.ended) return;
           }
         }
       }
 
-      // Soft separation between enemies
       for (let j = i - 1; j >= Math.max(0, i - 12); j--) {
         const other = this.enemies[j];
         const sx = e.x - other.x;
@@ -872,34 +1048,135 @@ export class GameEngine {
       e.mesh.position.x = e.x;
       e.mesh.position.z = e.z;
       const bounceScale = e.hitFlash > 0 ? 1.15 : 1.0;
-      const baseS = e.isBoss ? 1.85 : 1.0;
+      const baseS = e.isBoss ? 2.15 : 1.0;
       e.mesh.scale.setScalar(baseS * bounceScale);
     }
   }
 
-  private damageEnemy(e: EnemyEntity, amount: number, knockback: boolean): void {
-    e.hp -= amount;
+  private executeBossPattern(e: EnemyEntity, dirX: number, dirZ: number): void {
+    const pattern = e.bossPatternIdx % 3;
+    e.bossPatternIdx += 1;
+    e.bossActionTimer = 2.6;
+
+    if (pattern === 0) {
+      // Pattern 0: 12-way Ring Danmaku Burst
+      const count = 12;
+      this.spawnShockwave(e.x, e.z, 0xff4fd8, 4.5);
+      for (let k = 0; k < count; k++) {
+        const ang = (k / count) * Math.PI * 2 + this.animClock;
+        this.spawnBossBullet(e.x, e.z, Math.sin(ang) * 9.5, Math.cos(ang) * 9.5, 14);
+      }
+    } else if (pattern === 1) {
+      // Pattern 1: Aimed 5-way Fan Barrage
+      const baseAng = Math.atan2(dirX, dirZ);
+      for (let k = -2; k <= 2; k++) {
+        const ang = baseAng + k * 0.22;
+        this.spawnBossBullet(e.x, e.z, Math.sin(ang) * 12, Math.cos(ang) * 12, 16);
+      }
+    } else {
+      // Pattern 2: Telegraphed Dash Lunge
+      this.spawnShockwave(e.x, e.z, 0xff3d57, 3.8);
+      e.bossDashTimer = 0.55;
+      e.bossDashVx = dirX * 15;
+      e.bossDashVz = dirZ * 15;
+    }
+  }
+
+  private spawnBossBullet(x: number, z: number, vx: number, vz: number, damage: number): void {
+    const mesh = new THREE.Mesh(this.bossBulletGeo, this.bossBulletMat);
+    mesh.position.set(x, 1.0, z);
+    this.scene.add(mesh);
+    this.enemyBullets.push({ mesh, x, z, vx, vz, damage, life: 4.0 });
+  }
+
+  private updateEnemyBullets(dt: number): void {
+    for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
+      const b = this.enemyBullets[i];
+      b.life -= dt;
+      b.x += b.vx * dt;
+      b.z += b.vz * dt;
+      b.mesh.position.set(b.x, 1.0, b.z);
+
+      if (b.life <= 0 || Math.hypot(b.x, b.z) > ARENA_RADIUS + 2) {
+        this.scene.remove(b.mesh);
+        this.enemyBullets.splice(i, 1);
+        continue;
+      }
+
+      if (Math.hypot(b.x - this.playerX, b.z - this.playerZ) < 0.82 && this.invulnTimer <= 0) {
+        this.scene.remove(b.mesh);
+        this.enemyBullets.splice(i, 1);
+        if (!this.feverActive) {
+          this.hurtPlayer(b.damage);
+          if (this.ended) return;
+        }
+      }
+    }
+  }
+
+  private hurtPlayer(damage: number): void {
+    this.hp = Math.max(0, this.hp - damage);
+    this.invulnTimer = 0.72;
+    this.shakeStrength = 0.35;
+    this.sound.playHurt();
+    this.spawnCottonBurst(this.playerX, 0.9, this.playerZ, 7);
+    this.emitHud();
+    if (this.hp <= 0) {
+      this.endRun(false);
+    }
+  }
+
+  private damageEnemy(e: EnemyEntity, amount: number, knockback: boolean, knockForce = 8.5): void {
+    const critChance = 0.14 + Math.min(0.18, this.combo * 0.002);
+    const isCrit = Math.random() < critChance;
+    const finalDmg = isCrit ? amount * 1.65 : amount;
+
+    e.hp -= finalDmg;
     e.hitFlash = 0.12;
+    this.registerComboHit();
+
+    if (isCrit && this.hitstopTimer <= 0) {
+      this.hitstopTimer = 0.025; // Crisp micro-hitstop on crits!
+    }
+
     if (knockback) {
       const dx = e.x - this.playerX;
       const dz = e.z - this.playerZ;
       const d = Math.hypot(dx, dz) || 1;
-      const force = e.isBoss ? 3.5 : 8.5;
+      const force = e.isBoss ? knockForce * 0.35 : knockForce;
       e.vx += (dx / d) * force;
       e.vz += (dz / d) * force;
-      e.stunTimer = Math.max(e.stunTimer, e.isBoss ? 0.06 : 0.18);
+      e.stunTimer = Math.max(e.stunTimer, e.isBoss ? 0.05 : 0.18);
     }
 
-    this.spawnCottonBurst(e.x, 0.9, e.z, 3);
-    this.sound.playHit(amount >= 30);
+    this.spawnCottonBurst(e.x, 0.9, e.z, isCrit ? 5 : 3);
+    this.sound.playHit(finalDmg >= 32, isCrit);
 
-    if (Math.random() < 0.38 || e.isBoss) {
-      this.spawnFloatingAtWorld(e.x, e.isBoss ? 3.2 : 1.6, e.z, `${Math.round(amount)}`, '#fff3b0');
+    if (isCrit || Math.random() < 0.45 || e.isBoss) {
+      this.spawnFloatingAtWorld(
+        e.x,
+        e.isBoss ? 3.2 : 1.7,
+        e.z,
+        isCrit ? `CRIT ${Math.round(finalDmg)}!` : `${Math.round(finalDmg)}`,
+        isCrit ? '#ff99f2' : '#fff3b0',
+        isCrit
+      );
     }
 
     if (e.hp <= 0) {
       const idx = this.enemies.indexOf(e);
       if (idx !== -1) this.killEnemy(idx);
+    }
+  }
+
+  private registerComboHit(): void {
+    this.combo += 1;
+    this.comboTimer = 2.8;
+    if (this.combo === 25 || this.combo === 50 || this.combo % 100 === 0) {
+      this.sound.playComboMilestone();
+      this.fever = Math.min(100, this.fever + 12);
+      this.buttons += 2;
+      this.spawnFloatingAtWorld(this.playerX, 2.5, this.playerZ, `${this.combo} COMBO!!`, '#6effe8', true);
     }
   }
 
@@ -910,21 +1187,24 @@ export class GameEngine {
 
     this.kills += 1;
     this.fever = Math.min(100, this.fever + (e.isBoss ? 50 : 4.5));
-    this.spawnCottonBurst(e.x, 0.9, e.z, e.isBoss ? 22 : 9);
+    this.spawnCottonBurst(e.x, 0.9, e.z, e.isBoss ? 24 : 9);
 
-    // Drop XP orb + occasional gold button or healing bread
-    this.spawnPickup('xp', e.x, e.z, e.isBoss ? 120 : 12);
-    if (Math.random() < 0.45 || e.isBoss) {
-      this.spawnPickup('button', e.x + 0.4, e.z - 0.3, e.isBoss ? 25 : 1);
+    this.spawnPickup('xp', e.x, e.z, Math.round((e.isBoss ? 140 : 13) * this.xpMult));
+    if (Math.random() < 0.48 || e.isBoss) {
+      const baseBtn = e.isBoss ? this.currentStage.rewardButtons : 1;
+      this.spawnPickup('button', e.x + 0.4, e.z - 0.3, Math.max(1, Math.round(baseBtn * this.btnMult)));
     }
-    if (Math.random() < 0.06) {
-      this.spawnPickup('bread', e.x - 0.4, e.z + 0.3, 20);
+    if (Math.random() < 0.065) {
+      this.spawnPickup('bread', e.x - 0.4, e.z + 0.3, 22);
     }
 
     if (e.isBoss) {
-      this.hitstopTimer = 0.14;
-      this.shakeStrength = 0.7;
-      this.spawnShockwave(e.x, e.z, 0xffd166, 12);
+      this.hitstopTimer = 0.16;
+      this.shakeStrength = 0.75;
+      this.spawnShockwave(e.x, e.z, 0xffd166, 13);
+      this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
+      this.enemyBullets = [];
+      this.buttons += this.currentStage.rewardButtons;
       this.endRun(true);
     }
   }
@@ -944,13 +1224,17 @@ export class GameEngine {
         ? new THREE.SphereGeometry(0.32, 10, 10)
         : kind === 'eyeball'
           ? new THREE.SphereGeometry(0.28, 12, 12)
-          : new THREE.OctahedronGeometry(0.26, 0);
+          : new THREE.OctahedronGeometry(0.27, 0);
     const mat =
       kind === 'rabbit'
         ? makeFeltMaterial(0xffffff, { emissive: 0x3ec6e0, emissiveIntensity: 0.45 })
         : kind === 'eyeball'
           ? new THREE.MeshStandardMaterial({ color: 0xf7f7f0, emissive: 0x5be37d, emissiveIntensity: 0.35 })
-          : new THREE.MeshStandardMaterial({ color: 0xf5d742, emissive: 0xf5a623, emissiveIntensity: 0.75 });
+          : kind === 'flask'
+            ? new THREE.MeshStandardMaterial({ color: 0x45f07d, emissive: 0x20aa4d, emissiveIntensity: 0.7 })
+            : kind === 'wand'
+              ? new THREE.MeshStandardMaterial({ color: 0xc26bff, emissive: 0x8e2de2, emissiveIntensity: 0.8 })
+              : new THREE.MeshStandardMaterial({ color: 0xf5d742, emissive: 0xf5a623, emissiveIntensity: 0.75 });
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
@@ -981,9 +1265,8 @@ export class GameEngine {
         continue;
       }
 
-      // Gentle homing for magic rabbit
-      if (p.kind === 'rabbit') {
-        const target = this.findNearestEnemy(p.x, p.z, 12);
+      if (p.kind === 'rabbit' || p.kind === 'wand') {
+        const target = this.findNearestEnemy(p.x, p.z, 13);
         if (target) {
           const spd = Math.hypot(p.vx, p.vz);
           const ang = Math.atan2(target.x - p.x, target.z - p.z);
@@ -1003,6 +1286,9 @@ export class GameEngine {
         if (Math.hypot(e.x - p.x, e.z - p.z) < e.radius + 0.45) {
           p.hitIds.add(e.id);
           this.damageEnemy(e, p.damage, true);
+          if (p.kind === 'flask') {
+            this.spawnAcidTrap(p.x, p.z, 2.2, 10);
+          }
           if (p.bouncesLeft > 0) {
             p.bouncesLeft -= 1;
             const next = this.enemies.find((cand) => !p.hitIds.has(cand.id) && Math.hypot(cand.x - p.x, cand.z - p.z) < 11);
@@ -1079,7 +1365,7 @@ export class GameEngine {
             e.stunTimer = 1.25;
             e.slipSpin = 1.25;
             this.sound.playSlip();
-            this.spawnFloatingAtWorld(e.x, 1.9, e.z, 'SLIP!', '#ffe066');
+            this.spawnFloatingAtWorld(e.x, 1.9, e.z, 'SLIP!', '#ffe066', true);
             this.damageEnemy(e, t.damage * this.damageMult, true);
             this.scene.remove(t.mesh);
             this.traps.splice(i, 1);
@@ -1131,7 +1417,7 @@ export class GameEngine {
       const dist = Math.hypot(dx, dz);
 
       if (dist < this.pickupRadius) {
-        const pull = 14 * dt;
+        const pull = 14.5 * dt;
         p.x += (dx / (dist || 1)) * pull;
         p.z += (dz / (dist || 1)) * pull;
         p.mesh.position.x = p.x;
@@ -1279,7 +1565,7 @@ export class GameEngine {
     return best;
   }
 
-  private spawnFloatingAtWorld(wx: number, wy: number, wz: number, text: string, color: string): void {
+  private spawnFloatingAtWorld(wx: number, wy: number, wz: number, text: string, color: string, isCrit = false): void {
     const v = new THREE.Vector3(wx, wy, wz);
     v.project(this.camera);
     if (v.z > 1) return;
@@ -1287,13 +1573,17 @@ export class GameEngine {
     const h = this.container.clientHeight || window.innerHeight;
     const sx = (v.x * 0.5 + 0.5) * w;
     const sy = (-v.y * 0.5 + 0.5) * h;
-    this.callbacks.onFloatingText(sx, sy, text, color);
+    this.callbacks.onFloatingText(sx, sy, text, color, isCrit);
   }
 
   private buildSnapshot(): HudSnapshot {
     const boss = this.enemies.find((e) => e.isBoss);
-    const maxCd = Math.max(0.75, 1.65 - (this.activePatches['stitch_boots'] || 0) * 0.14);
+    const maxCd = Math.max(0.72, 1.6 - (this.activePatches['stitch_boots'] || 0) * 0.14);
+    const stageIdx = STAGES.findIndex((s) => s.id === this.currentStage.id);
     return {
+      stageIndex: this.currentStage.index,
+      stageName: this.currentStage.name,
+      hasNextStage: stageIdx >= 0 && stageIdx < STAGES.length - 1,
       hp: Math.ceil(this.hp),
       maxHp: this.maxHp,
       xp: this.xp,
@@ -1301,13 +1591,15 @@ export class GameEngine {
       level: this.level,
       kills: this.kills,
       buttons: this.buttons,
+      combo: this.combo,
+      comboTimerRatio: Math.max(0, Math.min(1, this.comboTimer / 2.8)),
       elapsed: this.elapsed,
       wave: this.wave,
       fever: Math.floor(this.fever),
       feverActive: this.feverActive,
       feverTimeLeft: this.feverTimer,
       dashCooldownRatio: Math.max(0, Math.min(1, this.dashCooldown / maxCd)),
-      bossName: boss ? '暴走キャプテン・パッチ' : null,
+      bossName: boss ? this.currentStage.bossName : null,
       bossHp: boss ? Math.max(0, Math.ceil(boss.hp)) : 0,
       bossMaxHp: boss ? boss.maxHp : 1,
       activePatches: { ...this.activePatches },

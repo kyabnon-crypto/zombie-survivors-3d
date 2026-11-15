@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 let feltBumpTex: THREE.CanvasTexture | null = null;
-let grassFloorTex: THREE.CanvasTexture | null = null;
+const stageFloorCache = new Map<string, THREE.CanvasTexture>();
 
 export function getFeltBumpTexture(): THREE.CanvasTexture {
   if (feltBumpTex) return feltBumpTex;
@@ -15,7 +15,6 @@ export function getFeltBumpTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#808080';
   ctx.fillRect(0, 0, size, size);
 
-  // Wool felt fibers + micro-fuzz
   for (let i = 0; i < 4500; i++) {
     const x = Math.random() * size;
     const y = Math.random() * size;
@@ -38,8 +37,14 @@ export function getFeltBumpTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-export function getGrassFloorTexture(): THREE.CanvasTexture {
-  if (grassFloorTex) return grassFloorTex;
+export function getStageFloorTexture(
+  stageId: string,
+  baseColor: string,
+  patchColors: string[],
+  checker = false
+): THREE.CanvasTexture {
+  const cached = stageFloorCache.get(stageId);
+  if (cached) return cached;
 
   const size = 512;
   const canvas = document.createElement('canvas');
@@ -47,23 +52,32 @@ export function getGrassFloorTexture(): THREE.CanvasTexture {
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#1f3b32';
+  ctx.fillStyle = baseColor;
   ctx.fillRect(0, 0, size, size);
 
-  // Felt turf patches
-  const patchColors = ['#24463b', '#1b332b', '#2b5244', '#182d27'];
-  for (let i = 0; i < 90; i++) {
-    ctx.fillStyle = patchColors[i % patchColors.length];
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const r = 18 + Math.random() * 44;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
+  if (checker) {
+    const step = 128;
+    for (let y = 0; y < size; y += step) {
+      for (let x = 0; x < size; x += step) {
+        if (((x / step + y / step) | 0) % 2 === 0) {
+          ctx.fillStyle = patchColors[0] || baseColor;
+          ctx.fillRect(x, y, step, step);
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < 90; i++) {
+      ctx.fillStyle = patchColors[i % patchColors.length];
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 18 + Math.random() * 44;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  // Subtle cross-stitch grid lines for handcrafted diorama look
-  ctx.strokeStyle = 'rgba(130, 185, 155, 0.08)';
+  ctx.strokeStyle = 'rgba(255, 245, 220, 0.08)';
   ctx.lineWidth = 2;
   ctx.setLineDash([8, 10]);
   for (let p = 64; p < size; p += 128) {
@@ -78,7 +92,6 @@ export function getGrassFloorTexture(): THREE.CanvasTexture {
   }
   ctx.setLineDash([]);
 
-  // Felt fuzz fibers
   for (let i = 0; i < 2400; i++) {
     const x = Math.random() * size;
     const y = Math.random() * size;
@@ -91,7 +104,7 @@ export function getGrassFloorTexture(): THREE.CanvasTexture {
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(14, 14);
   tex.colorSpace = THREE.SRGBColorSpace;
-  grassFloorTex = tex;
+  stageFloorCache.set(stageId, tex);
   return tex;
 }
 
