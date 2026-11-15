@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zombie-survivors-3d-v2';
+const CACHE_NAME = 'zombie-survivors-3d-v3';
 const PRECACHE_URLS = [
   './',
   './index.html',

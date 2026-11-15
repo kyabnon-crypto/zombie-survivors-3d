@@ -9,9 +9,9 @@ export class SoundEngine {
 
   constructor() {
     this.tracks = {
-      main: new Audio('./assets/audio/theme_main.mp3'),
-      boss: new Audio('./assets/audio/theme_fever.mp3'),
-      fever: new Audio('./assets/audio/theme_fever.mp3'),
+      main: new Audio('./assets/audio/bgm_night_town.mp3'),
+      boss: new Audio('./assets/audio/bgm_zombie_fever.mp3'),
+      fever: new Audio('./assets/audio/bgm_zombie_zombie.mp3'),
     };
     (Object.keys(this.tracks) as BgmMode[]).forEach((k) => {
       this.tracks[k].loop = true;
