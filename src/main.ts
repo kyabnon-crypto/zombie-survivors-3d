@@ -26,9 +26,10 @@ app.innerHTML = `
         <div class="lobby-top">
           <div class="game-logo">
             <div class="logo-title">ZOMBIE SURVIVORS 3D</div>
-            <div class="logo-sub">全12体プレイアブル • 3ステージ墓場無双</div>
+            <div class="logo-sub">全12体プレイアブル • 全12ステージ墓場無双</div>
           </div>
           <div class="lobby-top-actions">
+            <button id="btn-unlock-stages" class="pill-btn">🔓 全12ステージ開放</button>
             <button id="btn-shop" class="pill-btn gold">🛒 ショップ (<span id="lobby-btn-count">0</span> 🟡)</button>
             <button id="btn-lobby-mute" class="pill-btn">🔊 BGM ON</button>
           </div>
@@ -214,6 +215,8 @@ function formatTime(sec: number): string {
 
 function renderLobby(): void {
   document.getElementById('lobby-btn-count')!.textContent = `${save.buttons}`;
+  const unlockAllBtn = document.getElementById('btn-unlock-stages') as HTMLButtonElement;
+  unlockAllBtn.style.display = save.unlockedStageIndex >= STAGES.length ? 'none' : 'inline-flex';
 
   // Stage strip
   const stageStrip = document.getElementById('stage-strip')!;
@@ -223,6 +226,7 @@ function renderLobby(): void {
     const btn = document.createElement('button');
     btn.className = `stage-chip ${st.id === selectedStageId ? 'active' : ''} ${unlocked ? '' : 'locked'}`;
     btn.textContent = unlocked ? st.name : `🔒 ${st.name}`;
+    btn.title = `${st.description} (BOSS: ${st.bossName})`;
     btn.onclick = () => {
       if (!unlocked) return;
       selectedStageId = st.id;
@@ -564,6 +568,14 @@ document.getElementById('btn-quit')!.onclick = () => {
   hudOverlay.classList.add('hidden');
   lobbyOverlay.classList.remove('hidden');
   engine.returnToLobby();
+  renderLobby();
+};
+
+document.getElementById('btn-unlock-stages')!.onclick = () => {
+  sound.unlock();
+  save.unlockedStageIndex = STAGES.length;
+  writeSave(save);
+  sound.playLevelUp();
   renderLobby();
 };
 

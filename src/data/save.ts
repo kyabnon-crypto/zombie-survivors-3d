@@ -20,7 +20,7 @@ export const SHOP_UPGRADES: ShopUpgradeDef[] = [
 export interface SaveData {
   buttons: number;
   unlockedChars: string[];
-  unlockedStageIndex: number; // 1..3
+  unlockedStageIndex: number; // 1..12
   upgrades: Record<string, number>;
   bestKills: number;
   totalClears: number;
@@ -47,7 +47,7 @@ export function loadSave(): SaveData {
       unlockedChars: Array.isArray(parsed.unlockedChars)
         ? Array.from(new Set([...DEFAULT_SAVE.unlockedChars, ...parsed.unlockedChars]))
         : [...DEFAULT_SAVE.unlockedChars],
-      unlockedStageIndex: Math.max(1, Math.min(3, parsed.unlockedStageIndex || 1)),
+      unlockedStageIndex: Math.max(1, Math.min(12, parsed.unlockedStageIndex || 1)),
       upgrades: { ...DEFAULT_SAVE.upgrades, ...(parsed.upgrades || {}) },
       bestKills: parsed.bestKills || 0,
       totalClears: parsed.totalClears || 0,

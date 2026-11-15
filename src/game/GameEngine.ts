@@ -897,7 +897,7 @@ export class GameEngine {
 
     if (this.wave >= 3 && !this.bossSpawned) {
       this.bossSpawned = true;
-      this.spawnEnemy(this.currentStage.bossKind);
+      this.spawnEnemy('boss');
       this.spawnFloatingAtWorld(
         this.playerX,
         2.9,
@@ -918,11 +918,11 @@ export class GameEngine {
     const x = Math.max(-ARENA_RADIUS + 2, Math.min(ARENA_RADIUS - 2, this.playerX + Math.cos(angle) * dist));
     const z = Math.max(-ARENA_RADIUS + 2, Math.min(ARENA_RADIUS - 2, this.playerZ + Math.sin(angle) * dist));
 
-    const model = buildEnemyPuppet(kind);
+    const model = buildEnemyPuppet(kind, this.currentStage.bossCharId);
     model.root.position.set(x, 0, z);
     this.scene.add(model.root);
 
-    const isBoss = kind.startsWith('boss_');
+    const isBoss = kind === 'boss';
     const stageScale = this.currentStage.enemyHpMult;
     const scaleHp = (1 + this.elapsed * 0.012) * stageScale;
 

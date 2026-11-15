@@ -20,12 +20,21 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   scene.background = new THREE.Color(stage.skyColor);
   scene.fog = new THREE.FogExp2(stage.fogColor, 0.015);
 
-  const hemiColor = stage.id === 'lab' ? 0x7affd4 : stage.id === 'kitchen' ? 0xffd2a6 : 0x88b4ff;
-  const hemi = new THREE.HemisphereLight(hemiColor, 0x1a2024, 0.98);
+  const hemiColor =
+    stage.theme === 'lab'
+      ? 0x7affd4
+      : stage.theme === 'finale'
+        ? 0xff708d
+        : stage.theme === 'desert'
+          ? 0xffe0a6
+          : stage.theme === 'bakery' || stage.theme === 'carnival'
+            ? 0xffb8dc
+            : 0x88b4ff;
+  const hemi = new THREE.HemisphereLight(hemiColor, 0x1a2024, 1.0);
   scene.add(hemi);
   lights.push(hemi);
 
-  const moonLight = new THREE.DirectionalLight(stage.id === 'kitchen' ? 0xffe4c4 : 0xcde2ff, 1.55);
+  const moonLight = new THREE.DirectionalLight(stage.theme === 'finale' ? 0xffb3b3 : 0xdde8ff, 1.55);
   moonLight.position.set(18, 32, -20);
   moonLight.castShadow = true;
   moonLight.shadow.mapSize.set(1024, 1024);
@@ -40,8 +49,15 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   scene.add(moonLight);
   lights.push(moonLight);
 
-  // Moon / Ceiling Orb
-  const moonColor = stage.id === 'lab' ? 0x9bffd0 : stage.id === 'kitchen' ? 0xffe0a3 : 0xeaf4ff;
+  // Moon / Sky Orb
+  const moonColor =
+    stage.theme === 'finale'
+      ? 0xff4d6d
+      : stage.theme === 'lab'
+        ? 0x9bffd0
+        : stage.theme === 'desert' || stage.theme === 'kitchen'
+          ? 0xffe0a3
+          : 0xeaf4ff;
   const moonMesh = new THREE.Mesh(
     new THREE.SphereGeometry(5.5, 24, 24),
     new THREE.MeshBasicMaterial({ color: moonColor })
@@ -50,8 +66,9 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   group.add(moonMesh);
 
   // Main felt floor
+  const isChecker = stage.theme === 'kitchen' || stage.theme === 'prison' || stage.theme === 'carnival';
   const floorMat = new THREE.MeshStandardMaterial({
-    map: getStageFloorTexture(stage.id, stage.floorBaseColor, stage.floorPatchColors, stage.id === 'kitchen'),
+    map: getStageFloorTexture(stage.id, stage.floorBaseColor, stage.floorPatchColors, isChecker),
     roughness: 0.94,
     metalness: 0.0,
   });
@@ -68,107 +85,26 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   borderRing.position.y = 0.12;
   group.add(borderRing);
 
-  // Stage-specific obstacles & props
-  if (stage.id === 'graveyard') {
-    const stoneMat = makeFeltMaterial(0x525c6e);
-    const mossMat = makeFeltMaterial(0x417a53);
-    for (let i = 0; i < 14; i++) {
-      const angle = (i / 14) * Math.PI * 2 + 0.2;
-      const dist = 14 + (i % 3) * 8;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      const tomb = new THREE.Group();
-      tomb.position.set(x, 0, z);
-      tomb.rotation.y = -angle + Math.PI * 0.5 + (i % 2 === 0 ? 0.2 : -0.2);
+  // Themed Props & Obstacles per Stage Theme
+  buildThemedProps(group, obstacles, stage);
 
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.9, 0.55), stoneMat);
-      slab.position.y = 0.9;
-      slab.castShadow = true;
-      tomb.add(slab);
-
-      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.55, 14), stoneMat);
-      top.rotation.x = Math.PI / 2;
-      top.position.y = 1.85;
-      top.castShadow = true;
-      tomb.add(top);
-
-      const moss = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 8), mossMat);
-      moss.scale.set(1.2, 0.4, 1);
-      moss.position.set(0.35, 0.15, 0.22);
-      tomb.add(moss);
-
-      group.add(tomb);
-      obstacles.push({ x, z, r: 1.05 });
-    }
-  } else if (stage.id === 'kitchen') {
-    // Giant felt loaves, pudding cups & giant cooking pots!
-    const breadMat = makeFeltMaterial(0xc8843f);
-    const crustMat = makeFeltMaterial(0x7d4822);
-    const potMat = new THREE.MeshStandardMaterial({ color: 0x9aa4b5, metalness: 0.65, roughness: 0.3 });
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2 + 0.15;
-      const dist = 13 + (i % 3) * 8;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      const prop = new THREE.Group();
-      prop.position.set(x, 0, z);
-      if (i % 2 === 0) {
-        const loaf = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 1.2), breadMat);
-        loaf.position.y = 0.6;
-        loaf.castShadow = true;
-        prop.add(loaf);
-        const top = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.6, 12), crustMat);
-        top.rotation.z = Math.PI / 2;
-        top.position.y = 1.15;
-        top.castShadow = true;
-        prop.add(top);
-      } else {
-        const pot = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.9, 1.5, 16), potMat);
-        pot.position.y = 0.75;
-        pot.castShadow = true;
-        prop.add(pot);
-      }
-      group.add(prop);
-      obstacles.push({ x, z, r: 1.1 });
-    }
-  } else {
-    // Alchemist Lab: glowing green acid vats & crystals
-    const vatMat = makeFeltMaterial(0x3a4a4e);
-    const liquidMat = new THREE.MeshStandardMaterial({
-      color: 0x4dff88,
-      emissive: 0x22cc66,
-      emissiveIntensity: 1.1,
-    });
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2 + 0.3;
-      const dist = 13 + (i % 3) * 8;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      const vat = new THREE.Group();
-      vat.position.set(x, 0, z);
-
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 1.5, 14), vatMat);
-      base.position.y = 0.75;
-      base.castShadow = true;
-      vat.add(base);
-
-      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.75, 12, 10), liquidMat);
-      dome.position.y = 1.55;
-      vat.add(dome);
-
-      group.add(vat);
-      obstacles.push({ x, z, r: 1.0 });
-    }
-  }
-
-  // Perimeter yarn/felt trees or pillars
+  // Perimeter trees / pillars
   const trunkMat = makeFeltMaterial(0x543c2c);
-  const leafColors =
-    stage.id === 'kitchen'
-      ? [0xa84a6f, 0x873b66, 0xbf637b]
-      : stage.id === 'lab'
-        ? [0x267360, 0x328c6e, 0x1c594f]
-        : [0x2a5c49, 0x366d56, 0x244f4c];
+  const leafPalette: Record<string, number[]> = {
+    graveyard: [0x2a5c49, 0x366d56, 0x244f4c],
+    kitchen: [0xa84a6f, 0x873b66, 0xbf637b],
+    lab: [0x267360, 0x328c6e, 0x1c594f],
+    carnival: [0xd94848, 0xf2c94c, 0x3ec6e0],
+    stadium: [0x2d6e3e, 0x3a854c, 0x255933],
+    prison: [0x454959, 0x2d303d, 0x5c6073],
+    desert: [0xb88b4a, 0x8c6d3b, 0xd4a95e],
+    toyland: [0x7a48a6, 0x3ec6e0, 0xff7096],
+    bakery: [0xff85a8, 0xf7c5d6, 0xd96b8c],
+    library: [0x5a6e3e, 0x736236, 0x455430],
+    highway: [0xf07822, 0x454f63, 0xff9f45],
+    finale: [0x9e1b3b, 0x6b122c, 0xd9385a],
+  };
+  const cols = leafPalette[stage.theme] || leafPalette.graveyard;
 
   for (let i = 0; i < 16; i++) {
     const angle = (i / 16) * Math.PI * 2;
@@ -185,7 +121,7 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
 
     const puff = new THREE.Mesh(
       new THREE.SphereGeometry(1.5 + (i % 3) * 0.25, 14, 12),
-      makeFeltMaterial(leafColors[i % leafColors.length])
+      makeFeltMaterial(cols[i % cols.length])
     );
     puff.position.y = 3.2;
     puff.castShadow = true;
@@ -197,7 +133,16 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
 
   // Lanterns
   const lanternPostMat = makeFeltMaterial(0x2a2433);
-  const lampHex = stage.id === 'lab' ? 0x6bffa8 : stage.id === 'kitchen' ? 0xff9ec4 : 0xffb44c;
+  const lampHex =
+    stage.theme === 'lab'
+      ? 0x6bffa8
+      : stage.theme === 'finale'
+        ? 0xff5277
+        : stage.theme === 'highway'
+          ? 0xff9e44
+          : stage.theme === 'bakery' || stage.theme === 'carnival'
+            ? 0xff9ec4
+            : 0xffb44c;
   const lanternGlowMat = new THREE.MeshStandardMaterial({
     color: lampHex,
     emissive: lampHex,
@@ -239,7 +184,7 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   const fireGeo = new THREE.BufferGeometry();
   fireGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
   const fireMat = new THREE.PointsMaterial({
-    color: stage.id === 'lab' ? 0x7dffaa : stage.id === 'kitchen' ? 0xffd088 : 0xc6ff8a,
+    color: lampHex,
     size: 0.24,
     transparent: true,
     opacity: 0.78,
@@ -266,4 +211,119 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
       lights.forEach((l) => scene.remove(l));
     },
   };
+}
+
+function buildThemedProps(
+  group: THREE.Group,
+  obstacles: Array<{ x: number; z: number; r: number }>,
+  stage: StageDef
+): void {
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + 0.2;
+    const dist = 13 + (i % 3) * 8;
+    const x = Math.cos(angle) * dist;
+    const z = Math.sin(angle) * dist;
+    const prop = new THREE.Group();
+    prop.position.set(x, 0, z);
+    prop.rotation.y = -angle;
+
+    if (stage.theme === 'kitchen') {
+      const mat = makeFeltMaterial(i % 2 === 0 ? 0xc8843f : 0x8e99ad);
+      const box = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.9, 1.4, 14), mat);
+      box.position.y = 0.7;
+      box.castShadow = true;
+      prop.add(box);
+    } else if (stage.theme === 'lab') {
+      const vat = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 1.4, 14), makeFeltMaterial(0x3a4a4e));
+      vat.position.y = 0.7;
+      vat.castShadow = true;
+      prop.add(vat);
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.72, 12, 10),
+        new THREE.MeshStandardMaterial({ color: 0x4dff88, emissive: 0x22cc66, emissiveIntensity: 1.1 })
+      );
+      dome.position.y = 1.45;
+      prop.add(dome);
+    } else if (stage.theme === 'carnival') {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 1.1, 12), makeFeltMaterial(0xe04848));
+      base.position.y = 0.55;
+      prop.add(base);
+      const top = new THREE.Mesh(new THREE.ConeGeometry(0.95, 1.3, 12), makeFeltMaterial(0xf7e9d2));
+      top.position.y = 1.7;
+      top.castShadow = true;
+      prop.add(top);
+    } else if (stage.theme === 'stadium') {
+      const bat = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.18, 2.4, 12), makeFeltMaterial(0xc48f5a));
+      bat.position.y = 1.2;
+      bat.castShadow = true;
+      prop.add(bat);
+    } else if (stage.theme === 'prison') {
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 1.4, 14), makeFeltMaterial(i % 2 === 0 ? 0x282830 : 0xebd74c));
+      drum.position.y = 0.7;
+      drum.castShadow = true;
+      prop.add(drum);
+    } else if (stage.theme === 'desert') {
+      const obelisk = new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.8, 4), makeFeltMaterial(0xc9a86b));
+      obelisk.position.y = 1.4;
+      obelisk.castShadow = true;
+      prop.add(obelisk);
+    } else if (stage.theme === 'toyland') {
+      const blockColors = [0xff6b8b, 0x3ec6e0, 0xf2c94c, 0x9b5de5];
+      const blk = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), makeFeltMaterial(blockColors[i % 4]));
+      blk.position.y = 0.7;
+      blk.castShadow = true;
+      prop.add(blk);
+    } else if (stage.theme === 'bakery') {
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.65, 1.0, 14), makeFeltMaterial(0x704328));
+      cup.position.y = 0.5;
+      prop.add(cup);
+      const icing = new THREE.Mesh(new THREE.SphereGeometry(0.85, 14, 10), makeFeltMaterial(0xff99bb));
+      icing.position.y = 1.15;
+      icing.castShadow = true;
+      prop.add(icing);
+    } else if (stage.theme === 'library') {
+      const b1 = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.55, 1.1), makeFeltMaterial(0xe3c342));
+      b1.position.y = 0.28;
+      prop.add(b1);
+      const b2 = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.55, 1.0), makeFeltMaterial(0x5280b8));
+      b2.position.y = 0.83;
+      b2.rotation.y = 0.3;
+      b2.castShadow = true;
+      prop.add(b2);
+    } else if (stage.theme === 'highway') {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2.1, 14), makeFeltMaterial(0xf07822));
+      cone.position.y = 1.05;
+      cone.castShadow = true;
+      prop.add(cone);
+      const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.54, 0.36, 14), makeFeltMaterial(0xf5f5f0));
+      stripe.position.y = 1.05;
+      prop.add(stripe);
+    } else if (stage.theme === 'finale') {
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.8, 2.4, 12), makeFeltMaterial(0x4a1628));
+      pillar.position.y = 1.2;
+      pillar.castShadow = true;
+      prop.add(pillar);
+      const crown = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.55, 0),
+        new THREE.MeshStandardMaterial({ color: 0xffd15c, emissive: 0xcc8800, emissiveIntensity: 0.9 })
+      );
+      crown.position.y = 2.8;
+      prop.add(crown);
+    } else {
+      // Graveyard tombstones
+      const stoneMat = makeFeltMaterial(0x525c6e);
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.9, 0.55), stoneMat);
+      slab.position.y = 0.9;
+      slab.castShadow = true;
+      prop.add(slab);
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.55, 14), stoneMat);
+      top.rotation.x = Math.PI / 2;
+      top.position.y = 1.85;
+      prop.add(top);
+    }
+
+    group.add(prop);
+    obstacles.push({ x, z, r: 1.0 });
+  }
 }

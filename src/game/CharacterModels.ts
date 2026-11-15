@@ -475,18 +475,23 @@ export function buildPlayablePuppet(charId: string): PuppetRig {
   return { root, body, head, leftArm, rightArm, leftLeg, rightLeg };
 }
 
-export type EnemyKind = 'scissor' | 'crow' | 'vacuum' | 'boss_patch' | 'boss_chef' | 'boss_prof';
+export type EnemyKind = 'scissor' | 'crow' | 'vacuum' | 'boss';
 
-export function buildEnemyPuppet(kind: EnemyKind): { root: THREE.Group; animPart: THREE.Object3D; animPart2?: THREE.Object3D } {
-  if (kind === 'boss_chef') {
-    const rig = buildPlayablePuppet('purple_chef');
+export function buildEnemyPuppet(
+  kind: EnemyKind,
+  bossCharId = 'captain_patch'
+): { root: THREE.Group; animPart: THREE.Object3D; animPart2?: THREE.Object3D } {
+  if (kind === 'boss') {
+    const rig = buildPlayablePuppet(bossCharId);
     rig.root.scale.setScalar(2.15);
-    return { root: rig.root, animPart: rig.head, animPart2: rig.rightArm };
-  }
-  if (kind === 'boss_prof') {
-    const rig = buildPlayablePuppet('green_prof');
-    rig.root.scale.setScalar(2.15);
-    return { root: rig.root, animPart: rig.head, animPart2: rig.rightArm };
+    const aura = new THREE.Mesh(
+      new THREE.RingGeometry(0.8, 1.05, 28),
+      new THREE.MeshBasicMaterial({ color: 0xff4fd8, side: THREE.DoubleSide, transparent: true, opacity: 0.72 })
+    );
+    aura.rotation.x = -Math.PI / 2;
+    aura.position.y = 0.06;
+    rig.root.add(aura);
+    return { root: rig.root, animPart: rig.head, animPart2: rig.body };
   }
 
   const root = new THREE.Group();
@@ -553,31 +558,24 @@ export function buildEnemyPuppet(kind: EnemyKind): { root: THREE.Group; animPart
     return { root, animPart: wingL, animPart2: wingR };
   }
 
-  if (kind === 'vacuum') {
-    const bodyMat = makeFeltMaterial(0xc93b5b);
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2d36, roughness: 0.4, metalness: 0.4 });
-    const canister = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 0.85, 16), bodyMat);
-    canister.position.y = 0.58;
-    canister.castShadow = true;
-    root.add(canister);
+  const bodyMat = makeFeltMaterial(0xc93b5b);
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2d36, roughness: 0.4, metalness: 0.4 });
+  const canister = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 0.85, 16), bodyMat);
+  canister.position.y = 0.58;
+  canister.castShadow = true;
+  root.add(canister);
 
-    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.24, 0.55, 12), darkMat);
-    nozzle.rotation.x = Math.PI / 2.4;
-    nozzle.position.set(0, 0.65, 0.54);
-    root.add(nozzle);
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.24, 0.55, 12), darkMat);
+  nozzle.rotation.x = Math.PI / 2.4;
+  nozzle.position.set(0, 0.65, 0.54);
+  root.add(nozzle);
 
-    const eyeGlow = new THREE.Mesh(
-      new THREE.BoxGeometry(0.46, 0.14, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0xffeb66, emissive: 0xffaa00, emissiveIntensity: 0.7 })
-    );
-    eyeGlow.position.set(0, 0.88, 0.42);
-    root.add(eyeGlow);
+  const eyeGlow = new THREE.Mesh(
+    new THREE.BoxGeometry(0.46, 0.14, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0xffeb66, emissive: 0xffaa00, emissiveIntensity: 0.7 })
+  );
+  eyeGlow.position.set(0, 0.88, 0.42);
+  root.add(eyeGlow);
 
-    return { root, animPart: canister };
-  }
-
-  // boss_patch
-  const rig = buildPlayablePuppet('captain_patch');
-  rig.root.scale.setScalar(2.15);
-  return { root: rig.root, animPart: rig.head, animPart2: rig.body };
+  return { root, animPart: canister };
 }

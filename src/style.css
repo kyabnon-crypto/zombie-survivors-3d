@@ -153,12 +153,16 @@ canvas {
   display: flex;
   gap: 7px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
   pointer-events: auto;
   margin-top: 6px;
+  padding-bottom: 4px;
 }
 
 .stage-chip {
   cursor: pointer;
+  flex-shrink: 0;
   border: 2px solid rgba(255, 244, 220, 0.28);
   background: rgba(16, 25, 44, 0.88);
   color: #dce4f5;
