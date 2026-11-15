@@ -1,0 +1,17 @@
+{
+  "name": "ZOMBIE SURVIVORS 3D",
+  "short_name": "Zombie3D",
+  "description": "フェルト人形ゾンビたちが月夜の墓場で大暴れ！3Dサバイバーアクションゲーム",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0d1526",
+  "theme_color": "#0d1526",
+  "icons": [
+    {
+      "src": "./assets/chars/red_hatter.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
