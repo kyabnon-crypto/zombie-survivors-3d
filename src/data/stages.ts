@@ -31,7 +31,6 @@ export interface StageDef {
   enemyHpMult: number;
   bgmUrls: string[];
   bossBgmUrls: string[];
-  feverBgmUrl: string;
   rewardButtons: number;
 }
 
@@ -50,8 +49,6 @@ export const NORMAL_STAGE_BGM_URLS: string[] = [
   './assets/audio/bgm_zombie_zombie.mp3',
   './assets/audio/bgm_night_town.mp3',
 ];
-
-export const FEVER_BGM_URL = './assets/audio/bgm_zombie_zombie.mp3';
 
 export const STAGES: StageDef[] = [
   {
@@ -73,7 +70,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 1.0,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 20,
   },
   {
@@ -95,7 +91,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 1.25,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 28,
   },
   {
@@ -117,7 +112,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 1.45,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 35,
   },
   {
@@ -139,7 +133,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 1.65,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 42,
   },
   {
@@ -161,7 +154,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 1.85,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 50,
   },
   {
@@ -183,7 +175,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 2.05,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 58,
   },
   {
@@ -205,7 +196,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 2.25,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 65,
   },
   {
@@ -227,7 +217,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 2.45,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 75,
   },
   {
@@ -249,7 +238,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 2.7,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 85,
   },
   {
@@ -271,7 +259,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 2.95,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 95,
   },
   {
@@ -293,7 +280,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 3.25,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 110,
   },
   {
@@ -315,7 +301,6 @@ export const STAGES: StageDef[] = [
     enemyHpMult: 3.6,
     bgmUrls: NORMAL_STAGE_BGM_URLS,
     bossBgmUrls: BOSS_BGM_URLS,
-    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 150,
   },
 ];

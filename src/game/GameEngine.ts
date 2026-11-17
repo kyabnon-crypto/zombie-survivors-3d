@@ -312,7 +312,6 @@ export class GameEngine {
     this.sound.setStageTracks({
       main: st.bgmUrls,
       boss: st.bossBgmUrls,
-      fever: st.feverBgmUrl,
     });
   }
 
@@ -406,7 +405,6 @@ export class GameEngine {
     this.sound.setStageTracks({
       main: this.currentStage.bgmUrls,
       boss: this.currentStage.bossBgmUrls,
-      fever: this.currentStage.feverBgmUrl,
     });
     this.sound.startBgm('main', true);
     this.emitHud();
@@ -515,7 +513,6 @@ export class GameEngine {
     this.spawnShockwave(this.playerX, this.playerZ, 0xff5fd7, 10.5);
     this.spawnFloatingAtWorld(this.playerX, 2.5, this.playerZ, 'ZOMBIE FEVER!!', '#ff7cf5', true);
     this.sound.playFever();
-    this.sound.startBgm('fever');
 
     // Clear enemy bullets on fever activation!
     this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
@@ -665,7 +662,6 @@ export class GameEngine {
       this.feverTimer -= dt;
       if (this.feverTimer <= 0) {
         this.feverActive = false;
-        this.sound.startBgm(this.bossSpawned ? 'boss' : 'main');
       }
     }
 
@@ -908,7 +904,7 @@ export class GameEngine {
       );
       this.shakeStrength = 0.5;
       this.sound.playBossWarn();
-      if (!this.feverActive) this.sound.startBgm('boss', true);
+      this.sound.startBgm('boss', true);
     }
   }
 
