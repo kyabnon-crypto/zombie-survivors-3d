@@ -1,43 +1,115 @@
+import { BOSS_BGM_URLS, FEVER_BGM_URL, NORMAL_STAGE_BGM_URLS } from '../data/stages';
+
 export type BgmMode = 'main' | 'boss' | 'fever';
 
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private tracks: Record<BgmMode, HTMLAudioElement>;
+  private playlists: Record<BgmMode, string[]>;
+  private activeUrls: Record<BgmMode, string | null> = {
+    main: null,
+    boss: null,
+    fever: null,
+  };
+  private lastPlayedUrls: Record<BgmMode, string | null> = {
+    main: null,
+    boss: null,
+    fever: null,
+  };
   private muted = false;
   private bgmStarted = false;
   private currentMode: BgmMode = 'main';
 
   constructor() {
-    this.tracks = {
-      main: new Audio('./assets/audio/bgm_night_town.mp3'),
-      boss: new Audio('./assets/audio/bgm_zombie_fever.mp3'),
-      fever: new Audio('./assets/audio/bgm_zombie_zombie.mp3'),
+    this.playlists = {
+      main: [...NORMAL_STAGE_BGM_URLS],
+      boss: [...BOSS_BGM_URLS],
+      fever: [FEVER_BGM_URL],
     };
+    this.tracks = {
+      main: new Audio(),
+      boss: new Audio(),
+      fever: new Audio(FEVER_BGM_URL),
+    };
+    this.activeUrls.fever = FEVER_BGM_URL;
+
     (Object.keys(this.tracks) as BgmMode[]).forEach((k) => {
-      this.tracks[k].loop = true;
+      this.tracks[k].loop = k === 'fever';
       this.tracks[k].volume = k === 'main' ? 0.34 : 0.4;
+    });
+
+    (['main', 'boss'] as const).forEach((mode) => {
+      this.tracks[mode].addEventListener('ended', () => {
+        if (this.currentMode !== mode || !this.bgmStarted || this.muted) return;
+        const finishedUrl = this.activeUrls[mode];
+        const nextUrl = this.pickRandomTrack(mode, finishedUrl);
+        if (!nextUrl) return;
+        this.setTrackSource(mode, nextUrl, true);
+        void this.tracks[mode].play().catch(() => {});
+      });
     });
   }
 
+  private pickRandomTrack(mode: BgmMode, excludeUrl?: string | null): string {
+    const pool = this.playlists[mode];
+    if (pool.length === 0) return '';
+    if (pool.length === 1) return pool[0];
+    const filtered = excludeUrl ? pool.filter((u) => u !== excludeUrl) : pool;
+    const candidates = filtered.length > 0 ? filtered : pool;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  private setTrackSource(mode: BgmMode, url: string, resetTime: boolean): void {
+    const audio = this.tracks[mode];
+    this.activeUrls[mode] = url;
+    this.lastPlayedUrls[mode] = url;
+    if (audio.getAttribute('data-src') !== url) {
+      audio.pause();
+      audio.src = url;
+      audio.setAttribute('data-src', url);
+      audio.load();
+    }
+    if (resetTime) {
+      audio.currentTime = 0;
+    }
+  }
+
   /**
-   * Allows switching BGM file URLs dynamically per stage or when user provides new audio files.
+   * Allows switching BGM file URLs (single URL or playlist) dynamically per stage.
    */
-  public setStageTracks(urls: { main?: string; boss?: string; fever?: string }): void {
-    const updateTrack = (mode: BgmMode, url?: string) => {
-      if (!url) return;
-      if (this.tracks[mode].getAttribute('data-src') === url) return;
-      const wasPlaying = !this.tracks[mode].paused;
-      this.tracks[mode].pause();
-      this.tracks[mode].src = url;
-      this.tracks[mode].setAttribute('data-src', url);
-      this.tracks[mode].load();
-      if (wasPlaying && !this.muted) {
-        void this.tracks[mode].play().catch(() => {});
+  public setStageTracks(urls: {
+    main?: string | string[];
+    boss?: string | string[];
+    fever?: string | string[];
+  }): void {
+    const updatePlaylist = (mode: BgmMode, raw?: string | string[]) => {
+      if (!raw) return;
+      const list = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
+      if (list.length === 0) return;
+
+      const prev = this.playlists[mode];
+      const same = prev.length === list.length && prev.every((u, i) => u === list[i]);
+      if (same) return;
+
+      this.playlists[mode] = [...list];
+      const curUrl = this.activeUrls[mode];
+      if (curUrl && !list.includes(curUrl)) {
+        const wasPlaying = !this.tracks[mode].paused;
+        this.tracks[mode].pause();
+        this.activeUrls[mode] = null;
+        if (wasPlaying && !this.muted && this.bgmStarted && this.currentMode === mode) {
+          const nextUrl = this.pickRandomTrack(mode, this.lastPlayedUrls[mode]);
+          if (nextUrl) {
+            this.setTrackSource(mode, nextUrl, true);
+            void this.tracks[mode].play().catch(() => {});
+          }
+        }
       }
     };
-    updateTrack('main', urls.main);
-    updateTrack('boss', urls.boss);
-    updateTrack('fever', urls.fever);
+
+    updatePlaylist('main', urls.main);
+    updatePlaylist('boss', urls.boss);
+    updatePlaylist('fever', urls.fever);
   }
 
   public unlock(): void {
@@ -52,26 +124,45 @@ export class SoundEngine {
     }
   }
 
-  public startBgm(mode: BgmMode = 'main'): void {
+  public startBgm(mode: BgmMode = 'main', forceNew = false): void {
     this.unlock();
     this.currentMode = mode;
-    if (this.muted) return;
-
     this.bgmStarted = true;
+
     (Object.keys(this.tracks) as BgmMode[]).forEach((k) => {
       if (k !== mode) {
         this.tracks[k].pause();
       }
     });
+
     const active = this.tracks[mode];
+    const currentUrl = this.activeUrls[mode];
+    const needsNewSelection =
+      forceNew || !currentUrl || !this.playlists[mode].includes(currentUrl);
+
+    if (needsNewSelection) {
+      const nextUrl = this.pickRandomTrack(mode, this.lastPlayedUrls[mode]);
+      if (nextUrl) {
+        this.setTrackSource(mode, nextUrl, true);
+      }
+    } else if (mode === 'fever') {
+      active.currentTime = 0;
+    }
+
+    if (this.muted) return;
+
     if (active.paused) {
-      if (mode === 'fever') active.currentTime = 0;
       void active.play().catch(() => {});
     }
   }
 
   public stopBgm(): void {
-    (Object.keys(this.tracks) as BgmMode[]).forEach((k) => this.tracks[k].pause());
+    (Object.keys(this.tracks) as BgmMode[]).forEach((k) => {
+      this.tracks[k].pause();
+      this.tracks[k].currentTime = 0;
+    });
+    this.activeUrls.main = null;
+    this.activeUrls.boss = null;
     this.bgmStarted = false;
   }
 
@@ -80,7 +171,7 @@ export class SoundEngine {
     if (this.muted) {
       (Object.keys(this.tracks) as BgmMode[]).forEach((k) => this.tracks[k].pause());
     } else if (this.bgmStarted) {
-      this.startBgm(this.currentMode);
+      this.startBgm(this.currentMode, false);
     }
     return this.muted;
   }

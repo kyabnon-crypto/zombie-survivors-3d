@@ -29,11 +29,29 @@ export interface StageDef {
   bossHp: number;
   bossSpawnTime: number;
   enemyHpMult: number;
-  bgmUrl: string;
-  bossBgmUrl: string;
+  bgmUrls: string[];
+  bossBgmUrls: string[];
   feverBgmUrl: string;
   rewardButtons: number;
 }
+
+export const BOSS_BGM_URLS: string[] = [
+  './assets/audio/bgm_boss_01.mp3',
+  './assets/audio/bgm_boss_02.mp3',
+  './assets/audio/bgm_boss_03.mp3',
+  './assets/audio/bgm_boss_04.mp3',
+];
+
+export const NORMAL_STAGE_BGM_URLS: string[] = [
+  './assets/audio/bgm_chant_drop.mp3',
+  './assets/audio/bgm_chaos_chant.mp3',
+  './assets/audio/bgm_chaos.mp3',
+  './assets/audio/bgm_zombie_fever.mp3',
+  './assets/audio/bgm_zombie_zombie.mp3',
+  './assets/audio/bgm_night_town.mp3',
+];
+
+export const FEVER_BGM_URL = './assets/audio/bgm_zombie_zombie.mp3';
 
 export const STAGES: StageDef[] = [
   {
@@ -53,9 +71,9 @@ export const STAGES: StageDef[] = [
     bossHp: 1350,
     bossSpawnTime: 60,
     enemyHpMult: 1.0,
-    bgmUrl: './assets/audio/bgm_night_town.mp3',
-    bossBgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 20,
   },
   {
@@ -75,9 +93,9 @@ export const STAGES: StageDef[] = [
     bossHp: 1750,
     bossSpawnTime: 65,
     enemyHpMult: 1.25,
-    bgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    bossBgmUrl: './assets/audio/bgm_night_town.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 28,
   },
   {
@@ -97,9 +115,9 @@ export const STAGES: StageDef[] = [
     bossHp: 2150,
     bossSpawnTime: 65,
     enemyHpMult: 1.45,
-    bgmUrl: './assets/audio/bgm_night_town.mp3',
-    bossBgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 35,
   },
   {
@@ -119,9 +137,9 @@ export const STAGES: StageDef[] = [
     bossHp: 2550,
     bossSpawnTime: 65,
     enemyHpMult: 1.65,
-    bgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    bossBgmUrl: './assets/audio/bgm_night_town.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 42,
   },
   {
@@ -141,9 +159,9 @@ export const STAGES: StageDef[] = [
     bossHp: 2950,
     bossSpawnTime: 70,
     enemyHpMult: 1.85,
-    bgmUrl: './assets/audio/bgm_night_town.mp3',
-    bossBgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 50,
   },
   {
@@ -163,9 +181,9 @@ export const STAGES: StageDef[] = [
     bossHp: 3350,
     bossSpawnTime: 70,
     enemyHpMult: 2.05,
-    bgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    bossBgmUrl: './assets/audio/bgm_night_town.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 58,
   },
   {
@@ -185,9 +203,9 @@ export const STAGES: StageDef[] = [
     bossHp: 3800,
     bossSpawnTime: 70,
     enemyHpMult: 2.25,
-    bgmUrl: './assets/audio/bgm_night_town.mp3',
-    bossBgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 65,
   },
   {
@@ -207,9 +225,9 @@ export const STAGES: StageDef[] = [
     bossHp: 4250,
     bossSpawnTime: 70,
     enemyHpMult: 2.45,
-    bgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    bossBgmUrl: './assets/audio/bgm_night_town.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 75,
   },
   {
@@ -229,9 +247,9 @@ export const STAGES: StageDef[] = [
     bossHp: 4700,
     bossSpawnTime: 75,
     enemyHpMult: 2.7,
-    bgmUrl: './assets/audio/bgm_night_town.mp3',
-    bossBgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 85,
   },
   {
@@ -251,9 +269,9 @@ export const STAGES: StageDef[] = [
     bossHp: 5200,
     bossSpawnTime: 75,
     enemyHpMult: 2.95,
-    bgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    bossBgmUrl: './assets/audio/bgm_night_town.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 95,
   },
   {
@@ -273,9 +291,9 @@ export const STAGES: StageDef[] = [
     bossHp: 5800,
     bossSpawnTime: 75,
     enemyHpMult: 3.25,
-    bgmUrl: './assets/audio/bgm_night_town.mp3',
-    bossBgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 110,
   },
   {
@@ -295,9 +313,9 @@ export const STAGES: StageDef[] = [
     bossHp: 6800,
     bossSpawnTime: 80,
     enemyHpMult: 3.6,
-    bgmUrl: './assets/audio/bgm_zombie_fever.mp3',
-    bossBgmUrl: './assets/audio/bgm_night_town.mp3',
-    feverBgmUrl: './assets/audio/bgm_zombie_zombie.mp3',
+    bgmUrls: NORMAL_STAGE_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    feverBgmUrl: FEVER_BGM_URL,
     rewardButtons: 150,
   },
 ];

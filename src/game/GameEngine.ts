@@ -310,8 +310,8 @@ export class GameEngine {
     this.arena.dispose();
     this.arena = buildStageArena(this.scene, this.currentStage);
     this.sound.setStageTracks({
-      main: st.bgmUrl,
-      boss: st.bossBgmUrl,
+      main: st.bgmUrls,
+      boss: st.bossBgmUrls,
       fever: st.feverBgmUrl,
     });
   }
@@ -404,11 +404,11 @@ export class GameEngine {
       this.spawnEnemy('scissor');
     }
     this.sound.setStageTracks({
-      main: this.currentStage.bgmUrl,
-      boss: this.currentStage.bossBgmUrl,
+      main: this.currentStage.bgmUrls,
+      boss: this.currentStage.bossBgmUrls,
       fever: this.currentStage.feverBgmUrl,
     });
-    this.sound.startBgm('main');
+    this.sound.startBgm('main', true);
     this.emitHud();
   }
 
@@ -908,7 +908,7 @@ export class GameEngine {
       );
       this.shakeStrength = 0.5;
       this.sound.playBossWarn();
-      if (!this.feverActive) this.sound.startBgm('boss');
+      if (!this.feverActive) this.sound.startBgm('boss', true);
     }
   }
 
