@@ -7,7 +7,7 @@ import { SoundEngine } from '../audio/SoundEngine';
 import { ARENA_RADIUS, buildStageArena, type StageArena } from './Arena';
 import { buildEnemyPuppet, buildPlayablePuppet, type EnemyKind, type PuppetRig } from './CharacterModels';
 import { makeFeltMaterial } from './FeltMaterials';
-import { loadNormalizedGlb } from './GlbLoader';
+import { loadAnimatedGlb, type LoadedGlbCharacter } from './GlbLoader';
 
 export interface HudSnapshot {
   stageIndex: number;
@@ -66,6 +66,7 @@ interface EnemyEntity {
   bossDashTimer: number;
   bossDashVx: number;
   bossDashVz: number;
+  glbAnim?: LoadedGlbCharacter;
 }
 
 interface ProjectileEntity {
@@ -141,7 +142,7 @@ export class GameEngine {
 
   private charDef: ZombieCharDef = ZOMBIE_CHARACTERS[0];
   private playerRig: PuppetRig | null = null;
-  private customGlbGroup: THREE.Group | null = null;
+  private customGlbAnim: LoadedGlbCharacter | null = null;
   private playerX = 0;
   private playerZ = 0;
   private playerYaw = 0;
@@ -249,6 +250,10 @@ export class GameEngine {
     this.container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
+    const frontFillLight = new THREE.DirectionalLight(0xfff4e6, 0.85);
+    frontFillLight.position.set(-8, 12, 18);
+    this.scene.add(frontFillLight);
+
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 140);
     this.arena = buildStageArena(this.scene, this.currentStage);
 
@@ -321,18 +326,18 @@ export class GameEngine {
     if (this.playerRig) {
       this.scene.remove(this.playerRig.root);
     }
-    this.customGlbGroup = null;
+    this.customGlbAnim = null;
     this.playerRig = buildPlayablePuppet(found.id);
     this.playerRig.root.position.set(0, 0, 0);
     this.scene.add(this.playerRig.root);
 
     // Optional .glb precision model upgrade when file exists
     const glbUrl = found.glbPath || `./assets/models/${found.id}.glb`;
-    void loadNormalizedGlb(glbUrl, 1.95).then((glb) => {
+    void loadAnimatedGlb(glbUrl, 1.95).then((glb) => {
       if (!glb || !this.playerRig || this.charDef.id !== found.id) return;
       this.playerRig.body.visible = false;
-      this.customGlbGroup = glb;
-      this.playerRig.root.add(glb);
+      this.customGlbAnim = glb;
+      this.playerRig.root.add(glb.group);
     });
   }
 
@@ -623,8 +628,9 @@ export class GameEngine {
       this.arena.update(this.animClock);
       this.playerRig.root.rotation.y = Math.sin(this.animClock * 0.7) * 0.45;
       this.animatePuppet(this.playerRig, true, this.animClock);
-      if (this.customGlbGroup) {
-        this.customGlbGroup.position.y = Math.abs(Math.sin(this.animClock * 5)) * 0.1;
+      if (this.customGlbAnim) {
+        this.customGlbAnim.setMotion('walking', 0.85);
+        this.customGlbAnim.update(rawDt);
       }
       const isPortrait = (this.container.clientWidth || 1) < (this.container.clientHeight || 1);
       this.camera.position.set(0, isPortrait ? 4.4 : 3.6, isPortrait ? 7.8 : 6.4);
@@ -709,6 +715,14 @@ export class GameEngine {
       this.playerRig.root.scale.set(s, s, s);
       this.playerRig.root.visible = this.invulnTimer <= 0 || Math.floor(this.animClock * 18) % 2 === 0;
       this.animatePuppet(this.playerRig, moving, this.animClock);
+      if (this.customGlbAnim) {
+        if (moving) {
+          this.customGlbAnim.setMotion('running', this.dashTimer > 0 ? 1.5 : 1.05);
+        } else {
+          this.customGlbAnim.setMotion('idle', 1);
+        }
+        this.customGlbAnim.update(dt);
+      }
     }
 
     if (this.autoAttack && this.primaryTimer <= 0 && this.enemies.length > 0) {
@@ -930,7 +944,7 @@ export class GameEngine {
           ? { hp: 32 * scaleHp, speed: 5.2, radius: 0.62, damage: 9, isBoss: false }
           : { hp: 46 * scaleHp, speed: 3.85, radius: 0.68, damage: 11, isBoss: false };
 
-    this.enemies.push({
+    const entity: EnemyEntity = {
       id: this.nextEnemyId++,
       kind,
       mesh: model.root,
@@ -955,7 +969,20 @@ export class GameEngine {
       bossDashTimer: 0,
       bossDashVx: 0,
       bossDashVz: 0,
-    });
+    };
+    this.enemies.push(entity);
+
+    if (isBoss) {
+      const bossGlbUrl = `./assets/models/${this.currentStage.bossCharId}.glb`;
+      void loadAnimatedGlb(bossGlbUrl, 1.95).then((glb) => {
+        if (!glb || !this.enemies.includes(entity)) return;
+        if (model.animPart2) {
+          model.animPart2.visible = false;
+        }
+        entity.glbAnim = glb;
+        model.root.add(glb.group);
+      });
+    }
   }
 
   private updateEnemies(dt: number): void {
@@ -1005,7 +1032,11 @@ export class GameEngine {
           if (e.bossActionTimer <= 0) {
             this.executeBossPattern(e, dx / dist, dz / dist);
           }
-          e.mesh.position.y = Math.abs(Math.sin(this.animClock * 4.5)) * 0.25;
+          if (!e.glbAnim || !e.glbAnim.hasAnimations) {
+            e.mesh.position.y = Math.abs(Math.sin(this.animClock * 4.5)) * 0.25;
+          } else {
+            e.mesh.position.y = 0;
+          }
         } else if (e.kind === 'scissor' && e.animPart2) {
           const snap = Math.abs(Math.sin(this.animClock * 9 + e.id)) * 0.45;
           e.animPart.rotation.z = 0.1 + snap;
@@ -1024,6 +1055,11 @@ export class GameEngine {
             if (this.ended) return;
           }
         }
+      }
+
+      if (e.glbAnim) {
+        e.glbAnim.setMotion(e.stunTimer > 0 ? 'idle' : 'running', e.bossDashTimer > 0 ? 1.4 : 0.9);
+        e.glbAnim.update(dt);
       }
 
       for (let j = i - 1; j >= Math.max(0, i - 12); j--) {
