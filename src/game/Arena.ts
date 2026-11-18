@@ -23,7 +23,7 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   const hemiColor =
     stage.theme === 'lab'
       ? 0x7affd4
-      : stage.theme === 'finale'
+      : stage.theme === 'finale' || stage.theme === 'all_bosses'
         ? 0xff708d
         : stage.theme === 'desert'
           ? 0xffe0a6
@@ -34,7 +34,10 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   scene.add(hemi);
   lights.push(hemi);
 
-  const moonLight = new THREE.DirectionalLight(stage.theme === 'finale' ? 0xffb3b3 : 0xdde8ff, 1.55);
+  const moonLight = new THREE.DirectionalLight(
+    stage.theme === 'finale' || stage.theme === 'all_bosses' ? 0xffb3b3 : 0xdde8ff,
+    1.55
+  );
   moonLight.position.set(18, 32, -20);
   moonLight.castShadow = true;
   moonLight.shadow.mapSize.set(1024, 1024);
@@ -51,13 +54,15 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
 
   // Moon / Sky Orb
   const moonColor =
-    stage.theme === 'finale'
-      ? 0xff4d6d
-      : stage.theme === 'lab'
-        ? 0x9bffd0
-        : stage.theme === 'desert' || stage.theme === 'kitchen'
-          ? 0xffe0a3
-          : 0xeaf4ff;
+    stage.theme === 'all_bosses'
+      ? 0xffe066
+      : stage.theme === 'finale'
+        ? 0xff4d6d
+        : stage.theme === 'lab'
+          ? 0x9bffd0
+          : stage.theme === 'desert' || stage.theme === 'kitchen'
+            ? 0xffe0a3
+            : 0xeaf4ff;
   const moonMesh = new THREE.Mesh(
     new THREE.SphereGeometry(5.5, 24, 24),
     new THREE.MeshBasicMaterial({ color: moonColor })
@@ -66,7 +71,11 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   group.add(moonMesh);
 
   // Main felt floor
-  const isChecker = stage.theme === 'kitchen' || stage.theme === 'prison' || stage.theme === 'carnival';
+  const isChecker =
+    stage.theme === 'kitchen' ||
+    stage.theme === 'prison' ||
+    stage.theme === 'carnival' ||
+    stage.theme === 'all_bosses';
   const floorMat = new THREE.MeshStandardMaterial({
     map: getStageFloorTexture(stage.id, stage.floorBaseColor, stage.floorPatchColors, isChecker),
     roughness: 0.94,
@@ -103,6 +112,7 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
     library: [0x5a6e3e, 0x736236, 0x455430],
     highway: [0xf07822, 0x454f63, 0xff9f45],
     finale: [0x9e1b3b, 0x6b122c, 0xd9385a],
+    all_bosses: [0xffd15c, 0x9b5de5, 0xff4d6d, 0x3ec6e0],
   };
   const cols = leafPalette[stage.theme] || leafPalette.graveyard;
 
@@ -136,13 +146,15 @@ export function buildStageArena(scene: THREE.Scene, stage: StageDef): StageArena
   const lampHex =
     stage.theme === 'lab'
       ? 0x6bffa8
-      : stage.theme === 'finale'
-        ? 0xff5277
-        : stage.theme === 'highway'
-          ? 0xff9e44
-          : stage.theme === 'bakery' || stage.theme === 'carnival'
-            ? 0xff9ec4
-            : 0xffb44c;
+      : stage.theme === 'all_bosses'
+        ? 0xffe066
+        : stage.theme === 'finale'
+          ? 0xff5277
+          : stage.theme === 'highway'
+            ? 0xff9e44
+            : stage.theme === 'bakery' || stage.theme === 'carnival'
+              ? 0xff9ec4
+              : 0xffb44c;
   const lanternGlowMat = new THREE.MeshStandardMaterial({
     color: lampHex,
     emissive: lampHex,
@@ -299,14 +311,16 @@ function buildThemedProps(
       const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.54, 0.36, 14), makeFeltMaterial(0xf5f5f0));
       stripe.position.y = 1.05;
       prop.add(stripe);
-    } else if (stage.theme === 'finale') {
-      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.8, 2.4, 12), makeFeltMaterial(0x4a1628));
+    } else if (stage.theme === 'finale' || stage.theme === 'all_bosses') {
+      const pillarColor = stage.theme === 'all_bosses' ? (i % 2 === 0 ? 0x5c227a : 0x7a1b3d) : 0x4a1628;
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.8, 2.4, 12), makeFeltMaterial(pillarColor));
       pillar.position.y = 1.2;
       pillar.castShadow = true;
       prop.add(pillar);
+      const crownColor = stage.theme === 'all_bosses' && i % 2 === 1 ? 0xff4fd8 : 0xffd15c;
       const crown = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.55, 0),
-        new THREE.MeshStandardMaterial({ color: 0xffd15c, emissive: 0xcc8800, emissiveIntensity: 0.9 })
+        new THREE.MeshStandardMaterial({ color: crownColor, emissive: crownColor, emissiveIntensity: 0.9 })
       );
       crown.position.y = 2.8;
       prop.add(crown);

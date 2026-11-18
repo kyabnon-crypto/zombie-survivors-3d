@@ -61,6 +61,8 @@ interface EnemyEntity {
   poisonTimer: number;
   slipSpin: number;
   isBoss: boolean;
+  bossCharId?: string;
+  bossName?: string;
   bossActionTimer: number;
   bossPatternIdx: number;
   bossDashTimer: number;
@@ -228,6 +230,9 @@ export class GameEngine {
   private spawnTimer = 0;
   private wave = 1;
   private bossSpawned = false;
+  private bossRushNextIdx = 0;
+  private bossRushSpawnCooldown = 0;
+  private bossRushDefeatedCount = 0;
   private running = false;
   private paused = false;
   private ended = false;
@@ -400,6 +405,9 @@ export class GameEngine {
     this.wave = 1;
     this.spawnTimer = 0.4;
     this.bossSpawned = false;
+    this.bossRushNextIdx = 0;
+    this.bossRushSpawnCooldown = 0;
+    this.bossRushDefeatedCount = 0;
     this.ended = false;
     this.paused = false;
     this.running = true;
@@ -411,7 +419,7 @@ export class GameEngine {
       main: this.currentStage.bgmUrls,
       boss: this.currentStage.bossBgmUrls,
     });
-    this.sound.startBgm('main', true);
+    this.sound.startBgm(this.currentStage.isSpecialStage ? 'boss' : 'main', true);
     this.emitHud();
   }
 
@@ -892,17 +900,52 @@ export class GameEngine {
 
   private updateSpawning(dt: number): void {
     this.spawnTimer -= dt;
-    const maxEnemies = this.wave === 1 ? 26 : this.wave === 2 ? 42 : 55;
+    const isBossRush = Boolean(this.currentStage.isSpecialStage && this.currentStage.allBossLineup);
+    const maxEnemies = isBossRush ? 32 : this.wave === 1 ? 26 : this.wave === 2 ? 42 : 55;
     if (this.spawnTimer <= 0 && this.enemies.length < maxEnemies) {
-      const batch = this.wave === 1 ? 2 : this.wave === 2 ? 3 : 4;
+      const batch = isBossRush ? 2 : this.wave === 1 ? 2 : this.wave === 2 ? 3 : 4;
       for (let i = 0; i < batch; i++) {
         const r = Math.random();
         let kind: EnemyKind = 'scissor';
-        if (this.wave >= 2 && r > 0.7) kind = 'vacuum';
+        if ((this.wave >= 2 || isBossRush) && r > 0.7) kind = 'vacuum';
         else if (r > 0.42) kind = 'crow';
         this.spawnEnemy(kind);
       }
-      this.spawnTimer = this.wave === 1 ? 1.3 : this.wave === 2 ? 0.95 : 0.85;
+      this.spawnTimer = isBossRush ? 1.4 : this.wave === 1 ? 1.3 : this.wave === 2 ? 0.95 : 0.85;
+    }
+
+    if (isBossRush && this.currentStage.allBossLineup) {
+      const lineup = this.currentStage.allBossLineup;
+      this.bossRushSpawnCooldown -= dt;
+      const activeBossCount = this.enemies.filter((e) => e.isBoss).length;
+
+      // Start spawning once bossSpawnTime is reached; keep up to 2 bosses active at once, or spawn next after timer
+      if (
+        this.elapsed >= this.currentStage.bossSpawnTime &&
+        this.bossRushNextIdx < lineup.length &&
+        (activeBossCount === 0 || (activeBossCount < 2 && this.bossRushSpawnCooldown <= 0))
+      ) {
+        const bossSpec = lineup[this.bossRushNextIdx];
+        this.bossRushNextIdx += 1;
+        this.bossRushSpawnCooldown = 11.0;
+        this.wave = Math.min(3, 1 + Math.floor(this.bossRushNextIdx / 4));
+        if (!this.bossSpawned) {
+          this.bossSpawned = true;
+          this.sound.startBgm('boss', true);
+        }
+        this.spawnEnemy('boss', bossSpec);
+        this.spawnFloatingAtWorld(
+          this.playerX,
+          2.9,
+          this.playerZ,
+          `BOSS (${this.bossRushNextIdx}/${lineup.length}): ${bossSpec.name}`,
+          '#ffd166',
+          true
+        );
+        this.shakeStrength = 0.45;
+        this.sound.playBossWarn();
+      }
+      return;
     }
 
     if (this.wave >= 3 && !this.bossSpawned) {
@@ -922,13 +965,20 @@ export class GameEngine {
     }
   }
 
-  private spawnEnemy(kind: EnemyKind): void {
+  private spawnEnemy(
+    kind: EnemyKind,
+    bossOverride?: { charId: string; name: string; hp: number }
+  ): void {
     const angle = Math.random() * Math.PI * 2;
     const dist = 16 + Math.random() * 8;
     const x = Math.max(-ARENA_RADIUS + 2, Math.min(ARENA_RADIUS - 2, this.playerX + Math.cos(angle) * dist));
     const z = Math.max(-ARENA_RADIUS + 2, Math.min(ARENA_RADIUS - 2, this.playerZ + Math.sin(angle) * dist));
 
-    const model = buildEnemyPuppet(kind, this.currentStage.bossCharId);
+    const bossCharId = bossOverride?.charId || this.currentStage.bossCharId;
+    const bossName = bossOverride?.name || this.currentStage.bossName;
+    const bossHp = bossOverride?.hp || this.currentStage.bossHp;
+
+    const model = buildEnemyPuppet(kind, bossCharId);
     model.root.position.set(x, 0, z);
     this.scene.add(model.root);
 
@@ -937,7 +987,7 @@ export class GameEngine {
     const scaleHp = (1 + this.elapsed * 0.012) * stageScale;
 
     const stats = isBoss
-      ? { hp: this.currentStage.bossHp, speed: 3.5, radius: 1.5, damage: 22, isBoss: true }
+      ? { hp: bossHp, speed: 3.5, radius: 1.5, damage: 22, isBoss: true }
       : kind === 'vacuum'
         ? { hp: 78 * scaleHp, speed: 3.1, radius: 0.75, damage: 14, isBoss: false }
         : kind === 'crow'
@@ -964,6 +1014,8 @@ export class GameEngine {
       poisonTimer: 0,
       slipSpin: 0,
       isBoss: stats.isBoss,
+      bossCharId: isBoss ? bossCharId : undefined,
+      bossName: isBoss ? bossName : undefined,
       bossActionTimer: 2.2,
       bossPatternIdx: 0,
       bossDashTimer: 0,
@@ -973,7 +1025,7 @@ export class GameEngine {
     this.enemies.push(entity);
 
     if (isBoss) {
-      const bossGlbUrl = `./assets/models/${this.currentStage.bossCharId}.glb`;
+      const bossGlbUrl = `./assets/models/${bossCharId}.glb`;
       void loadAnimatedGlb(bossGlbUrl, 1.95).then((glb) => {
         if (!glb || !this.enemies.includes(entity)) return;
         if (model.animPart2) {
@@ -1218,22 +1270,48 @@ export class GameEngine {
     this.enemies.splice(idx, 1);
 
     this.kills += 1;
-    this.fever = Math.min(100, this.fever + (e.isBoss ? 50 : 4.5));
+    const isBossRush = Boolean(this.currentStage.isSpecialStage && this.currentStage.allBossLineup);
+    this.fever = Math.min(100, this.fever + (e.isBoss ? (isBossRush ? 35 : 50) : 4.5));
     this.spawnCottonBurst(e.x, 0.9, e.z, e.isBoss ? 24 : 9);
 
     this.spawnPickup('xp', e.x, e.z, Math.round((e.isBoss ? 140 : 13) * this.xpMult));
     if (Math.random() < 0.48 || e.isBoss) {
-      const baseBtn = e.isBoss ? this.currentStage.rewardButtons : 1;
+      const baseBtn = e.isBoss
+        ? isBossRush
+          ? Math.max(15, Math.round(this.currentStage.rewardButtons / 12))
+          : this.currentStage.rewardButtons
+        : 1;
       this.spawnPickup('button', e.x + 0.4, e.z - 0.3, Math.max(1, Math.round(baseBtn * this.btnMult)));
     }
-    if (Math.random() < 0.065) {
-      this.spawnPickup('bread', e.x - 0.4, e.z + 0.3, 22);
+    if (Math.random() < 0.065 || (isBossRush && e.isBoss)) {
+      this.spawnPickup('bread', e.x - 0.4, e.z + 0.3, 25);
     }
 
     if (e.isBoss) {
-      this.hitstopTimer = 0.16;
-      this.shakeStrength = 0.75;
-      this.spawnShockwave(e.x, e.z, 0xffd166, 13);
+      this.hitstopTimer = 0.14;
+      this.shakeStrength = 0.65;
+      this.spawnShockwave(e.x, e.z, 0xffd166, 12);
+
+      if (isBossRush && this.currentStage.allBossLineup) {
+        this.bossRushDefeatedCount += 1;
+        const totalBosses = this.currentStage.allBossLineup.length;
+        const remainingBosses = this.enemies.filter((en) => en.isBoss).length;
+
+        if (this.bossRushDefeatedCount >= totalBosses && this.bossRushNextIdx >= totalBosses && remainingBosses === 0) {
+          this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
+          this.enemyBullets = [];
+          this.buttons += this.currentStage.rewardButtons;
+          this.endRun(true);
+        } else {
+          // Prompt next boss soon if no bosses currently on field
+          if (remainingBosses === 0) {
+            this.bossRushSpawnCooldown = Math.min(this.bossRushSpawnCooldown, 1.2);
+          }
+          this.emitHud();
+        }
+        return;
+      }
+
       this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
       this.enemyBullets = [];
       this.buttons += this.currentStage.rewardButtons;
@@ -1609,7 +1687,28 @@ export class GameEngine {
   }
 
   private buildSnapshot(): HudSnapshot {
-    const boss = this.enemies.find((e) => e.isBoss);
+    const activeBosses = this.enemies.filter((e) => e.isBoss);
+    const boss = activeBosses[0] || null;
+    const isBossRush = Boolean(this.currentStage.isSpecialStage && this.currentStage.allBossLineup);
+    const totalRushBosses = this.currentStage.allBossLineup?.length || 12;
+
+    let bossName: string | null = null;
+    let bossHp = 0;
+    let bossMaxHp = 1;
+
+    if (isBossRush && boss) {
+      const sumHp = activeBosses.reduce((acc, b) => acc + Math.max(0, b.hp), 0);
+      const sumMax = activeBosses.reduce((acc, b) => acc + b.maxHp, 0);
+      const names = activeBosses.map((b) => b.bossName || this.currentStage.bossName).join(' & ');
+      bossName = `[${this.bossRushDefeatedCount}/${totalRushBosses}撃破] ${names}`;
+      bossHp = Math.ceil(sumHp);
+      bossMaxHp = Math.max(1, sumMax);
+    } else if (boss) {
+      bossName = boss.bossName || this.currentStage.bossName;
+      bossHp = Math.max(0, Math.ceil(boss.hp));
+      bossMaxHp = boss.maxHp;
+    }
+
     const maxCd = Math.max(0.72, 1.6 - (this.activePatches['stitch_boots'] || 0) * 0.14);
     const stageIdx = STAGES.findIndex((s) => s.id === this.currentStage.id);
     return {
@@ -1631,9 +1730,9 @@ export class GameEngine {
       feverActive: this.feverActive,
       feverTimeLeft: this.feverTimer,
       dashCooldownRatio: Math.max(0, Math.min(1, this.dashCooldown / maxCd)),
-      bossName: boss ? this.currentStage.bossName : null,
-      bossHp: boss ? Math.max(0, Math.ceil(boss.hp)) : 0,
-      bossMaxHp: boss ? boss.maxHp : 1,
+      bossName,
+      bossHp,
+      bossMaxHp,
       activePatches: { ...this.activePatches },
     };
   }

@@ -10,7 +10,8 @@ export type ArenaTheme =
   | 'bakery'
   | 'library'
   | 'highway'
-  | 'finale';
+  | 'finale'
+  | 'all_bosses';
 
 export interface StageDef {
   id: string;
@@ -32,6 +33,8 @@ export interface StageDef {
   bgmUrls: string[];
   bossBgmUrls: string[];
   rewardButtons: number;
+  isSpecialStage?: boolean;
+  allBossLineup?: Array<{ charId: string; name: string; hp: number }>;
 }
 
 export const BOSS_BGM_URLS: string[] = [
@@ -49,6 +52,8 @@ export const NORMAL_STAGE_BGM_URLS: string[] = [
   './assets/audio/bgm_zombie_zombie.mp3',
   './assets/audio/bgm_night_town.mp3',
 ];
+
+export const NORMAL_STAGE_COUNT = 12;
 
 export const STAGES: StageDef[] = [
   {
@@ -303,4 +308,41 @@ export const STAGES: StageDef[] = [
     bossBgmUrls: BOSS_BGM_URLS,
     rewardButtons: 150,
   },
+  {
+    id: 'special_all_bosses',
+    index: 13,
+    name: '★特別ステージ：全12大ボス総進撃',
+    subtitle: 'ALL-STAR BOSS RUSH',
+    description: '全12ステージ制覇で開放！歴代すべてのボスキャラが次々と現れる究極の特別ステージ！',
+    theme: 'all_bosses',
+    skyColor: 0x1c072b,
+    fogColor: 0x2c0b42,
+    floorBaseColor: '#2e163d',
+    floorPatchColors: ['#432059', '#22102e', '#562973', '#6b324b'],
+    borderColor: 0xffe066,
+    bossCharId: 'red_hatter',
+    bossName: '全12大ボス軍団',
+    bossHp: 2400,
+    bossSpawnTime: 8,
+    enemyHpMult: 3.2,
+    bgmUrls: BOSS_BGM_URLS,
+    bossBgmUrls: BOSS_BGM_URLS,
+    rewardButtons: 300,
+    isSpecialStage: true,
+    allBossLineup: [
+      { charId: 'captain_patch', name: '暴走キャプテン・パッチ', hp: 1600 },
+      { charId: 'purple_chef', name: '巨大モグリオ・ザ・マッドシェフ', hp: 1750 },
+      { charId: 'green_prof', name: '暴走グリーン・プロフェッサーΩ', hp: 1900 },
+      { charId: 'polka_pippin', name: '曲芸女王ポルカ・ピピン', hp: 2050 },
+      { charId: 'orange_cheney', name: 'スラッガー・チェイニー', hp: 2200 },
+      { charId: 'yellow_stripes', name: 'ドラム王イエロー・ストライプス', hp: 2350 },
+      { charId: 'mummy_wrapple', name: '太古のミイラ・ラップル', hp: 2500 },
+      { charId: 'scarf_miina', name: '人形使いスカーフのミイナ', hp: 2650 },
+      { charId: 'brains_blossom', name: 'スイーツ姫ブレインズ・ブロッサム', hp: 2800 },
+      { charId: 'green_glassy', name: '大賢者グリーン博士・グラッシー', hp: 3000 },
+      { charId: 'blue_partin', name: '重戦車ブルーパーティン', hp: 3250 },
+      { charId: 'red_hatter', name: '覚醒レッド・ハッター・キング', hp: 3600 },
+    ],
+  },
 ];
+

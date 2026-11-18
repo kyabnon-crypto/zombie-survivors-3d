@@ -179,8 +179,23 @@ canvas {
   color: #ffffff;
 }
 
+.stage-chip.special {
+  border-color: #ffd166;
+  background: linear-gradient(135deg, rgba(84, 24, 92, 0.92), rgba(110, 22, 58, 0.92));
+  color: #ffe89e;
+  box-shadow: 0 0 12px rgba(255, 209, 102, 0.35);
+}
+
+.stage-chip.special.active {
+  border-color: #fff6df;
+  background: linear-gradient(135deg, rgba(132, 36, 145, 0.98), rgba(168, 30, 82, 0.98));
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(255, 209, 102, 0.65);
+}
+
 .stage-chip.locked {
   opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .lobby-bottom {

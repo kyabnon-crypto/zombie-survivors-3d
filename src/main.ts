@@ -26,10 +26,9 @@ app.innerHTML = `
         <div class="lobby-top">
           <div class="game-logo">
             <div class="logo-title">ZOMBIE SURVIVORS 3D</div>
-            <div class="logo-sub">全12体プレイアブル • 全12ステージ墓場無双</div>
+            <div class="logo-sub">全12体プレイアブル • 12ステージ＋特別ボス総進撃</div>
           </div>
           <div class="lobby-top-actions">
-            <button id="btn-unlock-stages" class="pill-btn">🔓 全12ステージ開放</button>
             <button id="btn-shop" class="pill-btn gold">🛒 ショップ (<span id="lobby-btn-count">0</span> 🟡)</button>
             <button id="btn-lobby-mute" class="pill-btn">🔊 BGM ON</button>
           </div>
@@ -188,7 +187,8 @@ app.innerHTML = `
 const sound = new SoundEngine();
 let save = loadSave();
 let selectedCharId = ZOMBIE_CHARACTERS[0].id;
-let selectedStageId = STAGES[0].id;
+const initialStage = STAGES.find((s) => s.index === save.unlockedStageIndex) || STAGES[0];
+let selectedStageId = initialStage.id;
 let autoAttackMode = true;
 let shopTab: 'upgrades' | 'chars' = 'upgrades';
 
@@ -215,18 +215,26 @@ function formatTime(sec: number): string {
 
 function renderLobby(): void {
   document.getElementById('lobby-btn-count')!.textContent = `${save.buttons}`;
-  const unlockAllBtn = document.getElementById('btn-unlock-stages') as HTMLButtonElement;
-  unlockAllBtn.style.display = save.unlockedStageIndex >= STAGES.length ? 'none' : 'inline-flex';
 
   // Stage strip
   const stageStrip = document.getElementById('stage-strip')!;
   stageStrip.innerHTML = '';
   for (const st of STAGES) {
-    const unlocked = st.index <= save.unlockedStageIndex;
+    // Special Stage (index 13) is only shown/unlocked after Stage 12 is cleared (unlockedStageIndex >= 13 or specialStageCleared)
+    const unlocked = save.specialStageCleared || st.index <= save.unlockedStageIndex;
+    const isCleared = save.specialStageCleared || st.index < save.unlockedStageIndex;
     const btn = document.createElement('button');
-    btn.className = `stage-chip ${st.id === selectedStageId ? 'active' : ''} ${unlocked ? '' : 'locked'}`;
-    btn.textContent = unlocked ? st.name : `🔒 ${st.name}`;
-    btn.title = `${st.description} (BOSS: ${st.bossName})`;
+    btn.className = `stage-chip ${st.id === selectedStageId ? 'active' : ''} ${unlocked ? '' : 'locked'} ${st.isSpecialStage ? 'special' : ''}`;
+    if (unlocked) {
+      btn.textContent = `${isCleared ? '✓ ' : ''}${st.name}`;
+    } else {
+      btn.textContent = st.isSpecialStage ? '🔒 ★特別ステージ (全12ステージ制覇で開放)' : `🔒 ${st.name}`;
+    }
+    btn.title = unlocked
+      ? `${st.description} (BOSS: ${st.bossName})`
+      : st.isSpecialStage
+        ? 'STAGE 1〜12をすべてクリアすると開放されます！'
+        : `前のステージをクリアすると開放されます！`;
     btn.onclick = () => {
       if (!unlocked) return;
       selectedStageId = st.id;
@@ -353,7 +361,8 @@ function renderShop(): void {
 function updateHud(hud: HudSnapshot): void {
   document.getElementById('hud-hp-num')!.textContent = `${hud.hp} / ${hud.maxHp}`;
   document.getElementById('hud-hp-fill')!.style.width = `${Math.max(0, Math.min(100, (hud.hp / hud.maxHp) * 100))}%`;
-  document.getElementById('hud-wave')!.textContent = `ST${hud.stageIndex} • WAVE ${hud.wave} • ${formatTime(hud.elapsed)}`;
+  const stLabel = hud.stageIndex > 12 ? 'ST-EX' : `ST${hud.stageIndex}`;
+  document.getElementById('hud-wave')!.textContent = `${stLabel} • WAVE ${hud.wave} • ${formatTime(hud.elapsed)}`;
   document.getElementById('hud-kills')!.textContent = `撃破 ${hud.kills} • 🟡 ${hud.buttons}`;
   document.getElementById('hud-lv')!.textContent = `LV.${hud.level}`;
   document.getElementById('hud-xp-fill')!.style.width = `${Math.min(100, (hud.xp / hud.xpNext) * 100)}%`;
@@ -425,25 +434,55 @@ function showResultModal(victory: boolean, summary: HudSnapshot): void {
   // Save earned yellow buttons & stage unlocks!
   save.buttons += summary.buttons;
   save.bestKills = Math.max(save.bestKills, summary.kills);
+
+  const curStage = STAGES.find((s) => s.index === summary.stageIndex);
+  let newlyUnlockedStage: (typeof STAGES)[number] | null = null;
+  let justClearedSpecial = false;
+
   if (victory) {
     save.totalClears += 1;
-    if (summary.stageIndex >= save.unlockedStageIndex && summary.stageIndex < STAGES.length) {
+    if (curStage?.isSpecialStage) {
+      save.specialStageCleared = true;
+      save.unlockedStageIndex = STAGES.length;
+      justClearedSpecial = true;
+    } else if (summary.stageIndex >= save.unlockedStageIndex && summary.stageIndex < STAGES.length) {
       save.unlockedStageIndex = summary.stageIndex + 1;
+      newlyUnlockedStage = STAGES.find((s) => s.index === save.unlockedStageIndex) || null;
     }
   }
   writeSave(save);
 
-  document.getElementById('result-title')!.textContent = victory ? 'STAGE CLEAR!!' : 'ワタが尽きた…';
-  document.getElementById('result-sub')!.textContent = victory
-    ? `${summary.stageName} 制覇！`
-    : '集めたボタンで強化してリベンジだ！';
+  const nextStageDef = STAGES.find((s) => s.index === summary.stageIndex + 1) || null;
+
+  if (victory && justClearedSpecial) {
+    document.getElementById('result-title')!.textContent = '🎉 ALL STAGES COMPLETE!!';
+    document.getElementById('result-sub')!.textContent =
+      '特別ステージ完全制覇！今後すべてのステージを自由に選んで遊べます！';
+  } else if (victory && newlyUnlockedStage?.isSpecialStage) {
+    document.getElementById('result-title')!.textContent = '🌟 全12ステージ制覇!!';
+    document.getElementById('result-sub')!.textContent =
+      'すべてのボスが現れる「★特別ステージ：全12大ボス総進撃」が開放されました！';
+  } else if (victory && newlyUnlockedStage) {
+    document.getElementById('result-title')!.textContent = 'STAGE CLEAR!!';
+    document.getElementById('result-sub')!.textContent =
+      `${summary.stageName} 制覇！ → 「${newlyUnlockedStage.name}」が開放されました！`;
+  } else {
+    document.getElementById('result-title')!.textContent = victory ? 'STAGE CLEAR!!' : 'ワタが尽きた…';
+    document.getElementById('result-sub')!.textContent = victory
+      ? `${summary.stageName} 制覇！`
+      : '集めたボタンで強化してリベンジだ！';
+  }
+
   document.getElementById('res-time')!.textContent = formatTime(summary.elapsed);
   document.getElementById('res-kills')!.textContent = `${summary.kills}`;
   document.getElementById('res-level')!.textContent = `LV.${summary.level}`;
   document.getElementById('res-buttons')!.textContent = `+${summary.buttons} 🟡`;
 
   const nextBtn = document.getElementById('btn-next-stage')!;
-  if (victory && summary.hasNextStage) {
+  if (victory && nextStageDef) {
+    nextBtn.textContent = nextStageDef.isSpecialStage
+      ? '🔥 特別ステージ（全ボス戦）へ挑む！'
+      : `次のステージへ (${nextStageDef.name.split('：')[0]})`;
     nextBtn.classList.remove('hidden');
   } else {
     nextBtn.classList.add('hidden');
@@ -524,15 +563,26 @@ document.getElementById('btn-retry')!.onclick = startGame;
 document.getElementById('btn-next-stage')!.onclick = () => {
   resultModal.classList.add('hidden');
   const nextStageIdx = STAGES.findIndex((s) => s.id === selectedStageId) + 1;
-  if (nextStageIdx < STAGES.length) {
+  if (nextStageIdx >= 0 && nextStageIdx < STAGES.length) {
     selectedStageId = STAGES[nextStageIdx].id;
+    engine.advanceToNextStage();
+  } else {
+    hudOverlay.classList.add('hidden');
+    lobbyOverlay.classList.remove('hidden');
+    engine.returnToLobby();
+    renderLobby();
   }
-  engine.advanceToNextStage();
 };
 document.getElementById('btn-to-lobby')!.onclick = () => {
   resultModal.classList.add('hidden');
   hudOverlay.classList.add('hidden');
   lobbyOverlay.classList.remove('hidden');
+  // Automatically select the newly unlocked stage in lobby for convenience
+  const latestStage = STAGES.find((s) => s.index === save.unlockedStageIndex);
+  if (latestStage && !save.specialStageCleared) {
+    selectedStageId = latestStage.id;
+    engine.setLobbyStage(selectedStageId);
+  }
   engine.returnToLobby();
   renderLobby();
 };
@@ -568,14 +618,6 @@ document.getElementById('btn-quit')!.onclick = () => {
   hudOverlay.classList.add('hidden');
   lobbyOverlay.classList.remove('hidden');
   engine.returnToLobby();
-  renderLobby();
-};
-
-document.getElementById('btn-unlock-stages')!.onclick = () => {
-  sound.unlock();
-  save.unlockedStageIndex = STAGES.length;
-  writeSave(save);
-  sound.playLevelUp();
   renderLobby();
 };
 
@@ -657,5 +699,6 @@ function updateJoystick(clientX: number, clientY: number): void {
   engine.setJoystick(kx / MAX_JOY_R, ky / MAX_JOY_R);
 }
 
+engine.setLobbyStage(selectedStageId);
 renderLobby();
 syncMuteButtons();
