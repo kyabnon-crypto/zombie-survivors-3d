@@ -1,3 +1,5 @@
+import { DEFAULT_DIFFICULTY, isDifficultyId, type DifficultyId } from './difficulty';
+
 export interface ShopUpgradeDef {
   id: 'atk' | 'hp' | 'spd' | 'magnet' | 'xpMult' | 'btnMult';
   name: string;
@@ -17,12 +19,30 @@ export const SHOP_UPGRADES: ShopUpgradeDef[] = [
   { id: 'btnMult', name: '黄金ボタン運', icon: '🟡', desc: '獲得ボタン +25%/Lv', maxLevel: 5, baseCost: 12, costStep: 12 },
 ];
 
+export const MAX_CHAR_LEVEL = 20;
+
+export interface CharProgress {
+  level: number;
+  xp: number;
+}
+
+export interface CharXpGrantResult {
+  prevLevel: number;
+  newLevel: number;
+  xp: number;
+  xpNext: number;
+  gainedXp: number;
+  leveledUp: boolean;
+}
+
 export interface SaveData {
   buttons: number;
   unlockedChars: string[];
   unlockedStageIndex: number; // 1..13 (1..12 normal stages, 13 = special all-bosses stage)
   specialStageCleared: boolean;
   upgrades: Record<string, number>;
+  difficulty: DifficultyId;
+  charProgress: Record<string, CharProgress>;
   bestKills: number;
   totalClears: number;
 }
@@ -35,9 +55,24 @@ const DEFAULT_SAVE: SaveData = {
   unlockedStageIndex: 1,
   specialStageCleared: false,
   upgrades: { atk: 0, hp: 0, spd: 0, magnet: 0, xpMult: 0, btnMult: 0 },
+  difficulty: DEFAULT_DIFFICULTY,
+  charProgress: {},
   bestKills: 0,
   totalClears: 0,
 };
+
+function sanitizeCharProgress(raw: unknown): Record<string, CharProgress> {
+  if (!raw || typeof raw !== 'object') return {};
+  const result: Record<string, CharProgress> = {};
+  for (const [charId, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') continue;
+    const rec = val as Partial<CharProgress>;
+    const level = Math.max(1, Math.min(MAX_CHAR_LEVEL, Math.floor(typeof rec.level === 'number' ? rec.level : 1)));
+    const xp = Math.max(0, Math.floor(typeof rec.xp === 'number' ? rec.xp : 0));
+    result[charId] = { level, xp: level >= MAX_CHAR_LEVEL ? 0 : xp };
+  }
+  return result;
+}
 
 export function loadSave(): SaveData {
   try {
@@ -52,6 +87,8 @@ export function loadSave(): SaveData {
       unlockedStageIndex: Math.max(1, Math.min(13, parsed.unlockedStageIndex || 1)),
       specialStageCleared: Boolean(parsed.specialStageCleared),
       upgrades: { ...DEFAULT_SAVE.upgrades, ...(parsed.upgrades || {}) },
+      difficulty: isDifficultyId(parsed.difficulty) ? parsed.difficulty : DEFAULT_DIFFICULTY,
+      charProgress: sanitizeCharProgress(parsed.charProgress),
       bestKills: parsed.bestKills || 0,
       totalClears: parsed.totalClears || 0,
     };
@@ -71,3 +108,52 @@ export function writeSave(data: SaveData): void {
 export function getUpgradeCost(def: ShopUpgradeDef, curLevel: number): number {
   return def.baseCost + curLevel * def.costStep;
 }
+
+export function getCharXpForNextLevel(level: number): number {
+  return Math.round(80 * Math.pow(1.25, Math.max(0, level - 1)));
+}
+
+export function getCharLevelUpCost(level: number): number {
+  return 12 + Math.max(0, level - 1) * 8;
+}
+
+export function getCharProgress(save: SaveData, charId: string): CharProgress {
+  const existing = save.charProgress[charId];
+  if (existing) {
+    return {
+      level: Math.max(1, Math.min(MAX_CHAR_LEVEL, existing.level)),
+      xp: existing.level >= MAX_CHAR_LEVEL ? 0 : Math.max(0, existing.xp),
+    };
+  }
+  return { level: 1, xp: 0 };
+}
+
+export function grantCharXp(save: SaveData, charId: string, gainedXp: number): CharXpGrantResult {
+  const cur = getCharProgress(save, charId);
+  const prevLevel = cur.level;
+  let level = cur.level;
+  let xp = cur.xp + Math.max(0, Math.round(gainedXp));
+
+  while (level < MAX_CHAR_LEVEL) {
+    const needed = getCharXpForNextLevel(level);
+    if (xp < needed) break;
+    xp -= needed;
+    level += 1;
+  }
+
+  if (level >= MAX_CHAR_LEVEL) {
+    level = MAX_CHAR_LEVEL;
+    xp = 0;
+  }
+
+  save.charProgress[charId] = { level, xp };
+  return {
+    prevLevel,
+    newLevel: level,
+    xp,
+    xpNext: getCharXpForNextLevel(level),
+    gainedXp: Math.max(0, Math.round(gainedXp)),
+    leveledUp: level > prevLevel,
+  };
+}
+

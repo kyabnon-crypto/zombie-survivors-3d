@@ -270,3 +270,65 @@ export const ALL_CAST_GALLERY = ZOMBIE_CHARACTERS.map((c) => ({
   role: c.role,
   portrait: c.portrait,
 }));
+
+export interface ComputedCharStats {
+  level: number;
+  baseHp: number;
+  hp: number;
+  hpBonus: number;
+  baseAttack: number;
+  attack: number;
+  attackBonus: number;
+  damageMult: number;
+  baseSpeed: number;
+  speed: number;
+  speedBonus: number;
+  speedMult: number;
+  attackCooldown: number;
+  attackRate: number;
+  attackRange: number;
+  pickupRadius: number;
+}
+
+export function computeCharacterStats(
+  charDef: ZombieCharDef,
+  charLevel: number,
+  upgrades: Record<string, number>
+): ComputedCharStats {
+  const safeLevel = Math.max(1, Math.floor(charLevel));
+  const lvOffset = safeLevel - 1;
+
+  const hpBonus = lvOffset * 6 + (upgrades.hp || 0) * 20;
+  const hp = charDef.hp + hpBonus;
+
+  const damageMult = 1 + lvOffset * 0.04 + (upgrades.atk || 0) * 0.1;
+  const attack = Math.round(charDef.attackPower * damageMult);
+  const attackBonus = attack - charDef.attackPower;
+
+  const speedMult = 1 + lvOffset * 0.015 + (upgrades.spd || 0) * 0.06;
+  const speed = Number((charDef.speed * speedMult).toFixed(1));
+  const speedBonus = Number((speed - charDef.speed).toFixed(1));
+
+  const attackRate = Number((1 / charDef.attackCooldown).toFixed(1));
+  const pickupRadius = Number((4.4 * (1 + (upgrades.magnet || 0) * 0.2)).toFixed(1));
+
+  return {
+    level: safeLevel,
+    baseHp: charDef.hp,
+    hp,
+    hpBonus,
+    baseAttack: charDef.attackPower,
+    attack,
+    attackBonus,
+    damageMult,
+    baseSpeed: charDef.speed,
+    speed,
+    speedBonus,
+    speedMult,
+    attackCooldown: charDef.attackCooldown,
+    attackRate,
+    attackRange: charDef.attackRange,
+    pickupRadius,
+  };
+}
+

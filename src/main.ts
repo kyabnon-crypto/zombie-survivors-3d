@@ -1,8 +1,19 @@
 import './style.css';
-import { ZOMBIE_CHARACTERS } from './data/characters';
-import type { PatchDef } from './data/patches';
+import { computeCharacterStats, ZOMBIE_CHARACTERS } from './data/characters';
+import { DIFFICULTIES, getDifficultyDef, type DifficultyId } from './data/difficulty';
+import { PATCH_CATALOG, type PatchDef } from './data/patches';
 import { STAGES } from './data/stages';
-import { getUpgradeCost, loadSave, SHOP_UPGRADES, writeSave } from './data/save';
+import {
+  getCharLevelUpCost,
+  getCharProgress,
+  getCharXpForNextLevel,
+  getUpgradeCost,
+  grantCharXp,
+  loadSave,
+  MAX_CHAR_LEVEL,
+  SHOP_UPGRADES,
+  writeSave,
+} from './data/save';
 import { SoundEngine } from './audio/SoundEngine';
 import { GameEngine, type HudSnapshot } from './game/GameEngine';
 
@@ -42,11 +53,20 @@ app.innerHTML = `
           <div id="char-row" class="char-row"></div>
         </div>
         <div class="lobby-cta-col">
-          <button id="btn-mode-toggle" class="mode-toggle">
-            <span id="mode-dot" class="mode-dot"></span>
-            <span id="mode-label">片手オート攻撃: ON</span>
-          </button>
-          <button id="btn-play" class="play-btn">PLAY!</button>
+          <div class="felt-panel difficulty-panel">
+            <div class="difficulty-head">
+              <span class="difficulty-title">難易度</span>
+              <span id="difficulty-desc" class="difficulty-desc">標準バランス • 報酬 1.0x</span>
+            </div>
+            <div id="difficulty-picker" class="difficulty-picker"></div>
+          </div>
+          <div class="lobby-action-row">
+            <button id="btn-mode-toggle" class="mode-toggle">
+              <span id="mode-dot" class="mode-dot"></span>
+              <span id="mode-label">片手オート攻撃: ON</span>
+            </button>
+            <button id="btn-play" class="play-btn">PLAY!</button>
+          </div>
         </div>
       </div>
     </div>
@@ -159,6 +179,7 @@ app.innerHTML = `
           <div class="stat-tile"><div id="res-level" class="val">LV.1</div><div class="lbl">到達レベル</div></div>
           <div class="stat-tile"><div id="res-buttons" class="val">+0 🟡</div><div class="lbl">獲得ボタン(保存済)</div></div>
         </div>
+        <div id="res-char-growth" class="result-char-growth"></div>
         <div class="result-actions">
           <button id="btn-next-stage" class="play-btn hidden" style="padding:12px 24px; font-size:16px;">次のステージへ！</button>
           <button id="btn-retry" class="play-btn" style="padding:12px 24px; font-size:16px;">もう一度</button>
@@ -176,7 +197,7 @@ app.innerHTML = `
         </div>
         <div class="shop-tabs">
           <button id="tab-upgrades" class="shop-tab active">💪 初期ステータス強化</button>
-          <button id="tab-chars" class="shop-tab">🧸 全12キャラ解放</button>
+          <button id="tab-chars" class="shop-tab">🧸 キャラ解放・育成</button>
         </div>
         <div id="shop-grid" class="shop-grid"></div>
       </div>
@@ -189,6 +210,7 @@ let save = loadSave();
 let selectedCharId = ZOMBIE_CHARACTERS[0].id;
 const initialStage = STAGES.find((s) => s.index === save.unlockedStageIndex) || STAGES[0];
 let selectedStageId = initialStage.id;
+let selectedDifficulty: DifficultyId = save.difficulty;
 let autoAttackMode = true;
 let shopTab: 'upgrades' | 'chars' = 'upgrades';
 
@@ -211,6 +233,10 @@ function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function statPct(value: number, max: number): number {
+  return Math.max(8, Math.min(100, Math.round((value / max) * 100)));
 }
 
 function renderLobby(): void {
@@ -244,16 +270,100 @@ function renderLobby(): void {
     stageStrip.appendChild(btn);
   }
 
-  // Character Info
+  // Difficulty selector (3 tiers)
+  const diffDef = getDifficultyDef(selectedDifficulty);
+  document.getElementById('difficulty-desc')!.textContent = diffDef.summary;
+  const diffPicker = document.getElementById('difficulty-picker')!;
+  diffPicker.innerHTML = '';
+  for (const d of DIFFICULTIES) {
+    const btn = document.createElement('button');
+    btn.className = `diff-btn diff-${d.id} ${d.id === selectedDifficulty ? 'active' : ''}`;
+    btn.innerHTML = `
+      <span class="diff-btn-top">${d.icon} ${d.label}</span>
+      <span class="diff-btn-sub">${d.jpLabel}</span>
+    `;
+    btn.title = `${d.label} (${d.jpLabel}): ${d.summary}`;
+    btn.onclick = () => {
+      sound.unlock();
+      selectedDifficulty = d.id;
+      save.difficulty = d.id;
+      writeSave(save);
+      renderLobby();
+    };
+    diffPicker.appendChild(btn);
+  }
+
+  // Character Info, Level & Stats
   const charDef = ZOMBIE_CHARACTERS.find((c) => c.id === selectedCharId) || ZOMBIE_CHARACTERS[0];
   const isUnlocked = save.unlockedChars.includes(charDef.id);
+  const charProg = getCharProgress(save, charDef.id);
+  const charXpNext = getCharXpForNextLevel(charProg.level);
+  const isMaxLv = charProg.level >= MAX_CHAR_LEVEL;
+  const stats = computeCharacterStats(charDef, charProg.level, save.upgrades);
+  const startPatch = PATCH_CATALOG.find((p) => p.id === charDef.startingPatch);
+  const expPct = isMaxLv ? 100 : Math.min(100, Math.round((charProg.xp / charXpNext) * 100));
+
   const infoCard = document.getElementById('char-info-card')!;
   infoCard.innerHTML = `
-    <img class="char-info-portrait" src="${charDef.portrait}" alt="${charDef.name}" />
-    <div class="char-info-text">
-      <h2>${charDef.name} ${isUnlocked ? '' : `🔒 (${charDef.unlockCost} 🟡)`}</h2>
-      <span class="char-role-tag">${charDef.role}</span>
-      <p>${charDef.tagline}</p>
+    <div class="char-info-top">
+      <img class="char-info-portrait" src="${charDef.portrait}" alt="${charDef.name}" />
+      <div class="char-info-text">
+        <div class="char-name-row">
+          <h2>${charDef.name}</h2>
+          <span class="char-lv-badge ${isMaxLv ? 'max' : ''}">LV.${charProg.level}</span>
+          ${isUnlocked ? '' : `<span class="char-lock-pill">🔒 ${charDef.unlockCost} 🟡</span>`}
+        </div>
+        <div class="char-tags-row">
+          <span class="char-role-tag">${charDef.role}</span>
+          ${startPatch ? `<span class="char-patch-tag">${startPatch.icon} ${startPatch.name}</span>` : ''}
+        </div>
+        ${
+          isUnlocked
+            ? `<div class="char-exp-row">
+                <div class="char-exp-track"><div class="char-exp-fill" style="width:${expPct}%"></div></div>
+                <span class="char-exp-label">${isMaxLv ? 'MAX LV' : `EXP ${charProg.xp}/${charXpNext}`}</span>
+              </div>`
+            : ''
+        }
+        <p>${charDef.tagline}</p>
+      </div>
+    </div>
+    <div class="char-stats-grid">
+      <div class="char-stat-item">
+        <div class="char-stat-head">
+          <span class="char-stat-lbl">❤️ HP</span>
+          <span class="char-stat-val">${stats.hp}${stats.hpBonus > 0 ? `<em class="stat-bonus">+${stats.hpBonus}</em>` : ''}</span>
+        </div>
+        <div class="char-stat-bar"><div class="char-stat-fill fill-hp" style="width:${statPct(stats.hp, 280)}%"></div></div>
+      </div>
+      <div class="char-stat-item">
+        <div class="char-stat-head">
+          <span class="char-stat-lbl">⚔️ 攻撃</span>
+          <span class="char-stat-val">${stats.attack}${stats.attackBonus > 0 ? `<em class="stat-bonus">+${stats.attackBonus}</em>` : ''}</span>
+        </div>
+        <div class="char-stat-bar"><div class="char-stat-fill fill-atk" style="width:${statPct(stats.attack, 70)}%"></div></div>
+      </div>
+      <div class="char-stat-item">
+        <div class="char-stat-head">
+          <span class="char-stat-lbl">👟 速度</span>
+          <span class="char-stat-val">${stats.speed.toFixed(1)}${stats.speedBonus > 0 ? `<em class="stat-bonus">+${stats.speedBonus.toFixed(1)}</em>` : ''}</span>
+        </div>
+        <div class="char-stat-bar"><div class="char-stat-fill fill-spd" style="width:${statPct(stats.speed, 13.5)}%"></div></div>
+      </div>
+      <div class="char-stat-item">
+        <div class="char-stat-head">
+          <span class="char-stat-lbl">⚡ 連射</span>
+          <span class="char-stat-val">${stats.attackRate.toFixed(1)}/s</span>
+        </div>
+        <div class="char-stat-bar"><div class="char-stat-fill fill-rate" style="width:${statPct(stats.attackRate, 4.0)}%"></div></div>
+      </div>
+      <div class="char-stat-item">
+        <div class="char-stat-head">
+          <span class="char-stat-lbl">🎯 射程</span>
+          <span class="char-stat-val">${stats.attackRange.toFixed(1)}</span>
+        </div>
+        <div class="char-stat-bar"><div class="char-stat-fill fill-rng" style="width:${statPct(stats.attackRange, 10.5)}%"></div></div>
+      </div>
     </div>
   `;
 
@@ -266,11 +376,12 @@ function renderLobby(): void {
   charRow.innerHTML = '';
   for (const c of ZOMBIE_CHARACTERS) {
     const unlocked = save.unlockedChars.includes(c.id);
+    const prog = getCharProgress(save, c.id);
     const btn = document.createElement('button');
     btn.className = `char-avatar-btn ${c.id === selectedCharId ? 'active' : ''} ${unlocked ? '' : 'locked'}`;
     btn.innerHTML = `
       <img src="${c.portrait}" alt="${c.name}" />
-      ${unlocked ? '' : `<span class="char-lock-badge">${c.unlockCost}🟡</span>`}
+      ${unlocked ? `<span class="char-lv-chip">LV.${prog.level}</span>` : `<span class="char-lock-badge">${c.unlockCost}🟡</span>`}
     `;
     btn.onclick = () => {
       sound.unlock();
@@ -326,24 +437,53 @@ function renderShop(): void {
   } else {
     for (const c of ZOMBIE_CHARACTERS) {
       const unlocked = save.unlockedChars.includes(c.id);
-      const canBuy = !unlocked && save.buttons >= c.unlockCost;
+      const prog = getCharProgress(save, c.id);
+      const isMaxLv = prog.level >= MAX_CHAR_LEVEL;
+      const lvCost = getCharLevelUpCost(prog.level);
+      const canUnlock = !unlocked && save.buttons >= c.unlockCost;
+      const canLevelUp = unlocked && !isMaxLv && save.buttons >= lvCost;
+      const stats = computeCharacterStats(c, prog.level, save.upgrades);
       const card = document.createElement('div');
       card.className = 'shop-item';
       card.innerHTML = `
         <div class="shop-item-head">
           <img src="${c.portrait}" alt="${c.name}" />
           <div>
-            <div style="font-weight:900; font-size:13px;">${c.name}</div>
+            <div style="font-weight:900; font-size:13px;">${c.name} ${unlocked ? `<span class="shop-char-lv">LV.${prog.level}</span>` : ''}</div>
             <div style="font-size:10px; color:#ffd875;">${c.role}</div>
           </div>
         </div>
+        <div class="shop-char-mini-stats">❤️${stats.hp} • ⚔️${stats.attack} • 👟${stats.speed.toFixed(1)}</div>
         <div style="font-size:11px; color:#d7e0f2;">${c.tagline}</div>
-        <button class="shop-buy-btn" ${unlocked || !canBuy ? 'disabled' : ''}>
-          ${unlocked ? '解放済み ✓' : `アンロック (${c.unlockCost} 🟡)`}
+        <button class="shop-buy-btn" ${(unlocked ? !canLevelUp : !canUnlock) ? 'disabled' : ''}>
+          ${
+            unlocked
+              ? isMaxLv
+                ? 'MAX LV ✓'
+                : `LV.${prog.level + 1}に育成 (${lvCost} 🟡)`
+              : `アンロック (${c.unlockCost} 🟡)`
+          }
         </button>
       `;
       card.querySelector('button')!.onclick = () => {
-        if (!canBuy) return;
+        if (unlocked) {
+          if (!canLevelUp) return;
+          save.buttons -= lvCost;
+          const nextLv = Math.min(MAX_CHAR_LEVEL, prog.level + 1);
+          const nextXpCap = getCharXpForNextLevel(nextLv);
+          save.charProgress[c.id] = {
+            level: nextLv,
+            xp: nextLv >= MAX_CHAR_LEVEL ? 0 : Math.min(prog.xp, nextXpCap - 1),
+          };
+          selectedCharId = c.id;
+          engine.setLobbyCharacter(c.id);
+          writeSave(save);
+          sound.playLevelUp();
+          renderShop();
+          renderLobby();
+          return;
+        }
+        if (!canUnlock) return;
         save.buttons -= c.unlockCost;
         save.unlockedChars.push(c.id);
         selectedCharId = c.id;
@@ -362,7 +502,8 @@ function updateHud(hud: HudSnapshot): void {
   document.getElementById('hud-hp-num')!.textContent = `${hud.hp} / ${hud.maxHp}`;
   document.getElementById('hud-hp-fill')!.style.width = `${Math.max(0, Math.min(100, (hud.hp / hud.maxHp) * 100))}%`;
   const stLabel = hud.stageIndex > 12 ? 'ST-EX' : `ST${hud.stageIndex}`;
-  document.getElementById('hud-wave')!.textContent = `${stLabel} • WAVE ${hud.wave} • ${formatTime(hud.elapsed)}`;
+  document.getElementById('hud-wave')!.innerHTML =
+    `<span class="hud-diff-tag diff-${hud.difficultyId}">${hud.difficultyLabel}</span> ${stLabel} • WAVE ${hud.wave} • ${formatTime(hud.elapsed)}`;
   document.getElementById('hud-kills')!.textContent = `撃破 ${hud.kills} • 🟡 ${hud.buttons}`;
   document.getElementById('hud-lv')!.textContent = `LV.${hud.level}`;
   document.getElementById('hud-xp-fill')!.style.width = `${Math.min(100, (hud.xp / hud.xpNext) * 100)}%`;
@@ -431,9 +572,17 @@ function showLevelUpChoices(choices: Array<{ patch: PatchDef; nextLevel: number 
 }
 
 function showResultModal(victory: boolean, summary: HudSnapshot): void {
-  // Save earned yellow buttons & stage unlocks!
+  // Save earned yellow buttons, character EXP & stage unlocks!
   save.buttons += summary.buttons;
   save.bestKills = Math.max(save.bestKills, summary.kills);
+
+  const diffDef = getDifficultyDef(summary.difficultyId);
+  const baseCharXp = Math.round(
+    summary.kills * 1.2 + summary.level * 12 + (victory ? 45 + summary.stageIndex * 10 : 10)
+  );
+  const earnedCharXp = Math.max(10, Math.round(baseCharXp * diffDef.rewardMult));
+  const charXpRes = grantCharXp(save, summary.charId, earnedCharXp);
+  const playedChar = ZOMBIE_CHARACTERS.find((c) => c.id === summary.charId) || ZOMBIE_CHARACTERS[0];
 
   const curStage = STAGES.find((s) => s.index === summary.stageIndex);
   let newlyUnlockedStage: (typeof STAGES)[number] | null = null;
@@ -453,30 +602,55 @@ function showResultModal(victory: boolean, summary: HudSnapshot): void {
   writeSave(save);
 
   const nextStageDef = STAGES.find((s) => s.index === summary.stageIndex + 1) || null;
+  const diffPrefix = `[${diffDef.label}] `;
 
   if (victory && justClearedSpecial) {
     document.getElementById('result-title')!.textContent = '🎉 ALL STAGES COMPLETE!!';
     document.getElementById('result-sub')!.textContent =
-      '特別ステージ完全制覇！今後すべてのステージを自由に選んで遊べます！';
+      `${diffPrefix}特別ステージ完全制覇！今後すべてのステージを自由に選んで遊べます！`;
   } else if (victory && newlyUnlockedStage?.isSpecialStage) {
     document.getElementById('result-title')!.textContent = '🌟 全12ステージ制覇!!';
     document.getElementById('result-sub')!.textContent =
-      'すべてのボスが現れる「★特別ステージ：全12大ボス総進撃」が開放されました！';
+      `${diffPrefix}すべてのボスが現れる「★特別ステージ：全12大ボス総進撃」が開放されました！`;
   } else if (victory && newlyUnlockedStage) {
     document.getElementById('result-title')!.textContent = 'STAGE CLEAR!!';
     document.getElementById('result-sub')!.textContent =
-      `${summary.stageName} 制覇！ → 「${newlyUnlockedStage.name}」が開放されました！`;
+      `${diffPrefix}${summary.stageName} 制覇！ → 「${newlyUnlockedStage.name}」が開放されました！`;
   } else {
     document.getElementById('result-title')!.textContent = victory ? 'STAGE CLEAR!!' : 'ワタが尽きた…';
     document.getElementById('result-sub')!.textContent = victory
-      ? `${summary.stageName} 制覇！`
-      : '集めたボタンで強化してリベンジだ！';
+      ? `${diffPrefix}${summary.stageName} 制覇！`
+      : `${diffPrefix}集めたボタンやキャラ経験値で強化してリベンジだ！`;
   }
 
   document.getElementById('res-time')!.textContent = formatTime(summary.elapsed);
   document.getElementById('res-kills')!.textContent = `${summary.kills}`;
   document.getElementById('res-level')!.textContent = `LV.${summary.level}`;
   document.getElementById('res-buttons')!.textContent = `+${summary.buttons} 🟡`;
+
+  const growthEl = document.getElementById('res-char-growth')!;
+  const isMaxLv = charXpRes.newLevel >= MAX_CHAR_LEVEL;
+  const expPct = isMaxLv ? 100 : Math.min(100, Math.round((charXpRes.xp / charXpRes.xpNext) * 100));
+  growthEl.innerHTML = `
+    <div class="growth-head">
+      <div class="growth-char">
+        <img src="${playedChar.portrait}" alt="${playedChar.name}" />
+        <span>${playedChar.name}</span>
+      </div>
+      <div class="growth-lv">
+        ${
+          charXpRes.leveledUp
+            ? `<span class="growth-lvup-tag">LEVEL UP!</span> LV.${charXpRes.prevLevel} → <strong>LV.${charXpRes.newLevel}</strong>`
+            : `<strong>LV.${charXpRes.newLevel}</strong>`
+        }
+        <span class="growth-xp-gain">+${charXpRes.gainedXp} EXP</span>
+      </div>
+    </div>
+    <div class="char-exp-row">
+      <div class="char-exp-track"><div class="char-exp-fill" style="width:${expPct}%"></div></div>
+      <span class="char-exp-label">${isMaxLv ? 'MAX LV' : `${charXpRes.xp}/${charXpRes.xpNext}`}</span>
+    </div>
+  `;
 
   const nextBtn = document.getElementById('btn-next-stage')!;
   if (victory && nextStageDef) {
@@ -533,7 +707,7 @@ function startGame(): void {
   levelupModal.classList.add('hidden');
   hudOverlay.classList.remove('hidden');
   updateAutoBtnVisual();
-  engine.startRun(selectedCharId, selectedStageId, autoAttackMode, save);
+  engine.startRun(selectedCharId, selectedStageId, autoAttackMode, save, selectedDifficulty);
 }
 
 function updateAutoBtnVisual(): void {

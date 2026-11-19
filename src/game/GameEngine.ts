@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { ZOMBIE_CHARACTERS, type ZombieCharDef } from '../data/characters';
+import { computeCharacterStats, ZOMBIE_CHARACTERS, type ZombieCharDef } from '../data/characters';
+import { getDifficultyDef, type DifficultyDef, type DifficultyId } from '../data/difficulty';
 import { PATCH_CATALOG, type PatchDef } from '../data/patches';
 import { STAGES, type StageDef } from '../data/stages';
-import type { SaveData } from '../data/save';
+import { getCharProgress, type SaveData } from '../data/save';
 import { SoundEngine } from '../audio/SoundEngine';
 import { ARENA_RADIUS, buildStageArena, type StageArena } from './Arena';
 import { buildEnemyPuppet, buildPlayablePuppet, type EnemyKind, type PuppetRig } from './CharacterModels';
@@ -10,6 +11,9 @@ import { makeFeltMaterial } from './FeltMaterials';
 import { loadAnimatedGlb, type LoadedGlbCharacter } from './GlbLoader';
 
 export interface HudSnapshot {
+  charId: string;
+  difficultyId: DifficultyId;
+  difficultyLabel: string;
   stageIndex: number;
   stageName: string;
   hasNextStage: boolean;
@@ -141,6 +145,7 @@ export class GameEngine {
   private camera: THREE.PerspectiveCamera;
   private arena: StageArena;
   private currentStage: StageDef = STAGES[0];
+  private difficulty: DifficultyDef = getDifficultyDef('normal');
 
   private charDef: ZombieCharDef = ZOMBIE_CHARACTERS[0];
   private playerRig: PuppetRig | null = null;
@@ -346,21 +351,30 @@ export class GameEngine {
     });
   }
 
-  public startRun(charId: string, stageId: string, autoAttackMode: boolean, save: SaveData): void {
+  public startRun(
+    charId: string,
+    stageId: string,
+    autoAttackMode: boolean,
+    save: SaveData,
+    difficultyId: DifficultyId = save.difficulty
+  ): void {
     this.clearEntities();
     this.lobbyPreviewMode = false;
     this.autoAttack = autoAttackMode;
+    this.difficulty = getDifficultyDef(difficultyId);
     this.setLobbyStage(stageId);
     this.setLobbyCharacter(charId);
 
     const up = save.upgrades;
-    this.damageMult = 1 + (up.atk || 0) * 0.1;
-    this.maxHp = this.charDef.hp + (up.hp || 0) * 20;
+    const charProg = getCharProgress(save, this.charDef.id);
+    const stats = computeCharacterStats(this.charDef, charProg.level, up);
+    this.damageMult = stats.damageMult;
+    this.maxHp = stats.hp;
     this.hp = this.maxHp;
-    this.speedMult = 1 + (up.spd || 0) * 0.06;
-    this.pickupRadius = 4.4 * (1 + (up.magnet || 0) * 0.2);
+    this.speedMult = stats.speedMult;
+    this.pickupRadius = stats.pickupRadius;
     this.xpMult = 1 + (up.xpMult || 0) * 0.12;
-    this.btnMult = 1 + (up.btnMult || 0) * 0.25;
+    this.btnMult = (1 + (up.btnMult || 0) * 0.25) * this.difficulty.rewardMult;
 
     this.playerX = 0;
     this.playerZ = 0;
@@ -901,9 +915,11 @@ export class GameEngine {
   private updateSpawning(dt: number): void {
     this.spawnTimer -= dt;
     const isBossRush = Boolean(this.currentStage.isSpecialStage && this.currentStage.allBossLineup);
-    const maxEnemies = isBossRush ? 32 : this.wave === 1 ? 26 : this.wave === 2 ? 42 : 55;
+    const baseMaxEnemies = isBossRush ? 32 : this.wave === 1 ? 26 : this.wave === 2 ? 42 : 55;
+    const maxEnemies = Math.max(12, Math.round(baseMaxEnemies * this.difficulty.maxEnemiesMult));
     if (this.spawnTimer <= 0 && this.enemies.length < maxEnemies) {
-      const batch = isBossRush ? 2 : this.wave === 1 ? 2 : this.wave === 2 ? 3 : 4;
+      const baseBatch = isBossRush ? 2 : this.wave === 1 ? 2 : this.wave === 2 ? 3 : 4;
+      const batch = Math.max(1, Math.round(baseBatch * (this.difficulty.id === 'hard' ? 1.25 : 1)));
       for (let i = 0; i < batch; i++) {
         const r = Math.random();
         let kind: EnemyKind = 'scissor';
@@ -911,7 +927,8 @@ export class GameEngine {
         else if (r > 0.42) kind = 'crow';
         this.spawnEnemy(kind);
       }
-      this.spawnTimer = isBossRush ? 1.4 : this.wave === 1 ? 1.3 : this.wave === 2 ? 0.95 : 0.85;
+      const baseInterval = isBossRush ? 1.4 : this.wave === 1 ? 1.3 : this.wave === 2 ? 0.95 : 0.85;
+      this.spawnTimer = baseInterval * this.difficulty.spawnIntervalMult;
     }
 
     if (isBossRush && this.currentStage.allBossLineup) {
@@ -976,7 +993,7 @@ export class GameEngine {
 
     const bossCharId = bossOverride?.charId || this.currentStage.bossCharId;
     const bossName = bossOverride?.name || this.currentStage.bossName;
-    const bossHp = bossOverride?.hp || this.currentStage.bossHp;
+    const bossHp = Math.round((bossOverride?.hp || this.currentStage.bossHp) * this.difficulty.bossHpMult);
 
     const model = buildEnemyPuppet(kind, bossCharId);
     model.root.position.set(x, 0, z);
@@ -984,15 +1001,17 @@ export class GameEngine {
 
     const isBoss = kind === 'boss';
     const stageScale = this.currentStage.enemyHpMult;
-    const scaleHp = (1 + this.elapsed * 0.012) * stageScale;
+    const scaleHp = (1 + this.elapsed * 0.012) * stageScale * this.difficulty.enemyHpMult;
+    const spdScale = this.difficulty.enemySpeedMult;
+    const dmgScale = this.difficulty.enemyDamageMult;
 
     const stats = isBoss
-      ? { hp: bossHp, speed: 3.5, radius: 1.5, damage: 22, isBoss: true }
+      ? { hp: bossHp, speed: 3.5 * spdScale, radius: 1.5, damage: Math.max(1, Math.round(22 * dmgScale)), isBoss: true }
       : kind === 'vacuum'
-        ? { hp: 78 * scaleHp, speed: 3.1, radius: 0.75, damage: 14, isBoss: false }
+        ? { hp: 78 * scaleHp, speed: 3.1 * spdScale, radius: 0.75, damage: Math.max(1, Math.round(14 * dmgScale)), isBoss: false }
         : kind === 'crow'
-          ? { hp: 32 * scaleHp, speed: 5.2, radius: 0.62, damage: 9, isBoss: false }
-          : { hp: 46 * scaleHp, speed: 3.85, radius: 0.68, damage: 11, isBoss: false };
+          ? { hp: 32 * scaleHp, speed: 5.2 * spdScale, radius: 0.62, damage: Math.max(1, Math.round(9 * dmgScale)), isBoss: false }
+          : { hp: 46 * scaleHp, speed: 3.85 * spdScale, radius: 0.68, damage: Math.max(1, Math.round(11 * dmgScale)), isBoss: false };
 
     const entity: EnemyEntity = {
       id: this.nextEnemyId++,
@@ -1140,29 +1159,37 @@ export class GameEngine {
   private executeBossPattern(e: EnemyEntity, dirX: number, dirZ: number): void {
     const pattern = e.bossPatternIdx % 3;
     e.bossPatternIdx += 1;
-    e.bossActionTimer = 2.6;
+    e.bossActionTimer = 2.6 * this.difficulty.bossActionIntervalMult;
+    const bulletSpdScale = this.difficulty.bossBulletSpeedMult;
+    const dmgScale = this.difficulty.enemyDamageMult;
 
     if (pattern === 0) {
-      // Pattern 0: 12-way Ring Danmaku Burst
-      const count = 12;
+      // Pattern 0: Ring Danmaku Burst
+      const count = this.difficulty.bossRingBulletCount;
+      const spd = 9.5 * bulletSpdScale;
+      const dmg = Math.max(1, Math.round(14 * dmgScale));
       this.spawnShockwave(e.x, e.z, 0xff4fd8, 4.5);
       for (let k = 0; k < count; k++) {
         const ang = (k / count) * Math.PI * 2 + this.animClock;
-        this.spawnBossBullet(e.x, e.z, Math.sin(ang) * 9.5, Math.cos(ang) * 9.5, 14);
+        this.spawnBossBullet(e.x, e.z, Math.sin(ang) * spd, Math.cos(ang) * spd, dmg);
       }
     } else if (pattern === 1) {
-      // Pattern 1: Aimed 5-way Fan Barrage
+      // Pattern 1: Aimed Fan Barrage
       const baseAng = Math.atan2(dirX, dirZ);
-      for (let k = -2; k <= 2; k++) {
+      const halfSpread = this.difficulty.id === 'easy' ? 1 : 2;
+      const spd = 12 * bulletSpdScale;
+      const dmg = Math.max(1, Math.round(16 * dmgScale));
+      for (let k = -halfSpread; k <= halfSpread; k++) {
         const ang = baseAng + k * 0.22;
-        this.spawnBossBullet(e.x, e.z, Math.sin(ang) * 12, Math.cos(ang) * 12, 16);
+        this.spawnBossBullet(e.x, e.z, Math.sin(ang) * spd, Math.cos(ang) * spd, dmg);
       }
     } else {
       // Pattern 2: Telegraphed Dash Lunge
+      const dashSpd = 15 * this.difficulty.enemySpeedMult;
       this.spawnShockwave(e.x, e.z, 0xff3d57, 3.8);
       e.bossDashTimer = 0.55;
-      e.bossDashVx = dirX * 15;
-      e.bossDashVz = dirZ * 15;
+      e.bossDashVx = dirX * dashSpd;
+      e.bossDashVz = dirZ * dashSpd;
     }
   }
 
@@ -1300,7 +1327,7 @@ export class GameEngine {
         if (this.bossRushDefeatedCount >= totalBosses && this.bossRushNextIdx >= totalBosses && remainingBosses === 0) {
           this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
           this.enemyBullets = [];
-          this.buttons += this.currentStage.rewardButtons;
+          this.buttons += Math.max(1, Math.round(this.currentStage.rewardButtons * this.difficulty.rewardMult));
           this.endRun(true);
         } else {
           // Prompt next boss soon if no bosses currently on field
@@ -1314,7 +1341,7 @@ export class GameEngine {
 
       this.enemyBullets.forEach((b) => this.scene.remove(b.mesh));
       this.enemyBullets = [];
-      this.buttons += this.currentStage.rewardButtons;
+      this.buttons += Math.max(1, Math.round(this.currentStage.rewardButtons * this.difficulty.rewardMult));
       this.endRun(true);
     }
   }
@@ -1712,6 +1739,9 @@ export class GameEngine {
     const maxCd = Math.max(0.72, 1.6 - (this.activePatches['stitch_boots'] || 0) * 0.14);
     const stageIdx = STAGES.findIndex((s) => s.id === this.currentStage.id);
     return {
+      charId: this.charDef.id,
+      difficultyId: this.difficulty.id,
+      difficultyLabel: this.difficulty.label,
       stageIndex: this.currentStage.index,
       stageName: this.currentStage.name,
       hasNextStage: stageIdx >= 0 && stageIdx < STAGES.length - 1,
